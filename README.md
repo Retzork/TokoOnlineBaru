@@ -13,6 +13,7 @@ This README has two jobs:
 - Each brief lists tasks plus **"Known issues to fix"** — the module's sample code contains typos/inconsistencies that must be corrected, not copied.
 - **Already done in WP II (do not rebuild):** tables `user`, `kategori`, `produk`, `foto_produk`; models `User`, `Kategori`, `Produk`, `FotoProduk`; backend controllers `BerandaController`, `LoginController`, `UserController`, `KategoriController`, `ProdukController`; admin views under `resources/views/backend/` (Matrix Admin template); helper `App\Helpers\ImageHelper::uploadAndResize()`.
 - **WP III builds:** the public storefront using the E-Shop (Colorlib) template, themed as a traditional Indonesian snack store ("Jajanan Tradisional").
+- **Customer feature design:** `docs/blueprint-customer.md` — `user` + `customer` table structure, their 1 : 0..1 relation and the Google-login data flow.
 
 ## Running the project
 
@@ -28,16 +29,18 @@ This README has two jobs:
 | Area | URL | Credentials |
 | --- | --- | --- |
 | Storefront | http://127.0.0.1:8000 | — |
-| Admin backend | http://127.0.0.1:8000/backend/login | `fauzi@gmail.com` / `P@55w0rd` |
+| Admin backend | http://127.0.0.1:8000/backend/login | `kelompok3@gmail.com` / `kelompok123@` |
 | Mailpit (mail catcher) | http://localhost:8025 | — |
+| Database browser (phpMyAdmin) | http://localhost/phpmyadmin/ | auto-login as `adminer` (MySQL user with rights on `db_tokoonline` only) |
+| Database browser (Adminer) | http://localhost/adminer/ | `adminer` / `adminer` |
 
-- Database: `db_tokoonline` (MySQL, user `root`, empty password). Seeded users: `fauzi@gmail.com` (Super Admin) and two regular users, all password `P@55w0rd` (fauzi) / `P@55word` (others).
+- Database: `db_tokoonline` (MySQL, user `root`, empty password). Seeded users: `kelompok3@gmail.com` (Super Admin — the module's seeded `fauzi@gmail.com`, renamed at the group's request) and two regular users — passwords `kelompok123@` (kelompok3) / `P@55word` (others).
 - `.env` mail settings point at Mailpit on `127.0.0.1:1025` (`MAIL_HOST=127.0.0.1` — the Laragon install does not resolve the docker hostname `mailpit`).
 - Product images use `php artisan storage:link`; uploads live in `storage/app/public/img-produk/`.
 
 ## Conventions (follow these)
 
-- Table names are **singular** (`user`, `kategori`, `produk`, `foto_produk`, and later `customer`, `order`, `order_item`).
+- Table names are **singular** (`user`, `kategori`, `produk`, `foto_produk`, `customer`, and later `order`, `order_item`).
 - Indonesian naming for fields and UI text.
 - Backend views extend `backend.v_layouts.app`; frontend views extend `v_layouts.app`. Content goes in `@section('content')`.
 - Frontend layout: `resources/views/v_layouts/app.blade.php`. Frontend views are `v_<name>/<page>.blade.php` (e.g. `v_beranda/index.blade.php`).
@@ -78,7 +81,7 @@ Completed: <date>
 | --- | --- | --- |
 | 1 | Frontend Setup and Home Page | :white_check_mark: Done |
 | 2 | Product Display (list, detail, category filter, all products, pagination) | :white_check_mark: Done |
-| 3 | Customer Registration and Login with Google (Socialite) | Not started |
+| 3 | Customer Registration and Login with Google (Socialite) | :white_check_mark: Done |
 | 4 | Account Management (frontend session + backend customer list) | Not started |
 | 5 | Route Groups and Middleware (customer account page) | Not started |
 | 6 | Shopping Cart | Not started |
@@ -130,7 +133,7 @@ Completed: 2026-10-15
 5. Scroll down → "Produk Terbaru" section with 4 demo cards (Kue Lapis Tradisional, Onde-Onde Spesial, Klepon Gula Aren, Pastel Basah). **Note:** these are static template placeholders — Week 2 replaces them with real products from the database.
 6. Check the footer → store logo, description, social icons, link columns, subscribe form, and copyright with the current year.
 7. Open the browser tab → favicon shows the BSI icon (`public/image/icon_univ_bsi.png`).
-8. Regression check (backend untouched) → open http://127.0.0.1:8000/backend/login and log in with `fauzi@gmail.com` / `P@55w0rd`; the admin beranda still shows "Selamat Datang, Fauzi".
+8. Regression check (backend untouched) → open http://127.0.0.1:8000/backend/login and log in with `kelompok3@gmail.com` / `kelompok123@`; the admin beranda still shows "Selamat Datang, Mahasiswa BSI".
 
 **Files to inspect**
 
@@ -220,3 +223,67 @@ Completed: 2026-10-15
 - Regression: `/backend/login` → 200; PHP lint clean on `ProdukController.php` and `routes/web.php`.
 - After the visual fixes: all 40 product image files (8 products + 2 extras × original/lg/md/sm) verified at exact 3:4; `/beranda` and `/produk/detail/1` re-screenshotted (headless Edge) and reviewed — no distortion, logo renders at 210x70 in header and footer.
 - Full Week 2 HTTP suite re-run after the fixes: 50/51 pass. The single FAIL is a known false positive in the "no wishlist/add-to-cart dead buttons" check (footer's `fa fa-heart-o` icon matches the pattern; there are no actual dead buttons).
+
+### Week 3 — Customer Registration and Login with Google (Socialite) :white_check_mark:
+
+Completed: 2026-10-17
+
+**Goal:** register/log in storefront customers with their Google account (Laravel Socialite) — a first login creates a `user` row (role 2) plus a linked `customer` row.
+
+**What was done**
+
+- `laravel/socialite` installed (`composer require laravel/socialite` → `^5.31`).
+- `.env` / `.env.example` — `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (empty placeholders until the OAuth client exists) and `GOOGLE_REDIRECT_URL=http://localhost:8000/auth/google/callback` (must be `localhost` — Google Cloud rejects IP addresses in OAuth redirect URIs).
+- `config/services.php` — `google` client block reading those three env vars.
+- `database/migrations/2026_10_17_120000_create_customer_table.php` — `customer` table: `id`, `user_id` (FK → `user.id`, cascade on delete), nullable `google_id`, `google_token`, `alamat`, `pos`, timestamps.
+- `app/Models/Customer.php` — extends `Authenticatable`, `$table = 'customer'`, `$fillable` limited to columns that actually exist, `user()` belongsTo, and a `deleting` hook that deletes the related `user` row.
+- `app/Http/Controllers/CustomerController.php`:
+  - `redirect()` → `Socialite::driver('google')->redirect()`
+  - `callback()` → finds the `User` by Google email; if new, creates the `user` (role `'2'`, status 1, random 32-char hashed password) and the `customer` (google_id + google_token), then `Auth::login()`; existing accounts are logged in **only when role is 2**; every failure redirects to `/` with a `msgError` flash
+  - `logout(Request)` → `Auth::logout()`, session invalidate + CSRF token regenerate, redirect `/`
+- `routes/web.php` — `GET /auth/redirect` (`auth.redirect`), `GET /auth/google/callback` (`auth.callback`), `POST /logout` (`logout`).
+- `resources/views/v_layouts/app.blade.php` — Account-area "Login" and "Daftar" links point to `route('auth.redirect')`.
+
+**Known issues from the module fixed**
+
+- `Customer::$fillable` no longer lists `user` columns (`nama, email, status, role, password, hp, foto`) — only the real `customer` columns.
+- Default password `'default_password'` replaced with `Hash::make(Str::random(32))`.
+- Admin/superadmin emails cannot log in through Google: role ≠ 2 → redirect to `/` with `msgError` "Email ini terdaftar sebagai akun admin, silakan login melalui halaman backend."; admin login stays on `/backend/login`.
+- An email that already exists in `user` is reused (no duplicate `user` row), per the module's flow.
+
+**How to check**
+
+1. One-time manual step (user): in the Google Cloud Console create a project, configure the OAuth consent screen (External), create an OAuth client of type "Web application" (the console moved this to **Google Auth Platform → Clients**, no longer under "Credentials") with redirect URI `http://localhost:8000/auth/google/callback` — Google shows *"Invalid URL: cannot contain an IP address"* if `127.0.0.1` is used — then put the Client ID and Secret into `.env` (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`). Leave the consent screen's *App domain* and *Authorized domains* fields empty: they never accept `localhost` or IPs (*"Invalid URL: cannot contain a localhost domain"*) and are not required while testing. While the consent screen is in "Testing", add the Gmail used for testing as a test user.
+2. Start MySQL in Laragon, run `php artisan serve`, and for the Google flow open **http://localhost:8000** (not `127.0.0.1`): the OAuth `state` is stored in the session cookie, and a cookie set on one host is not sent to the other. Other pages work the same on both hosts.
+3. Header "Akun Saya" → "Login" (or "Daftar") → the browser goes to `accounts.google.com`; pick an account and allow.
+4. You land back on `/beranda`. The header still shows "Login / Daftar" — expected for now; showing the logged-in name arrives in Week 4.
+5. Confirm the database in the browser with **phpMyAdmin** — open http://localhost/phpmyadmin/ (Laragon's pre-configured `/phpmyadmin` alias; opens already logged in as MySQL user `adminer`) → database `db_tokoonline` → table `customer`: one row per registered customer with `google_id` filled; table `user`: the matching row has `role = 2`, `status = 1` (and `customer.google_token` is filled too). In the **SQL** tab, the same check is:
+   `SELECT u.nama, u.email, u.role, u.status, c.google_id FROM user u JOIN customer c ON c.user_id = u.id ORDER BY u.id DESC LIMIT 1;`
+   Alternative, **Adminer** (also bundled with Laragon): http://localhost/adminer/ → Server `127.0.0.1`, Username `adminer`, Password `adminer`, Database `db_tokoonline`. The dedicated `adminer` MySQL user exists because browser DB tools refuse passwordless logins; the app itself still uses MySQL `root` with an empty password. Recreate the checker user with:
+   `CREATE USER IF NOT EXISTS 'adminer'@'localhost' IDENTIFIED BY 'adminer'; CREATE USER IF NOT EXISTS 'adminer'@'127.0.0.1' IDENTIFIED BY 'adminer'; GRANT ALL PRIVILEGES ON db_tokoonline.* TO 'adminer'@'localhost'; GRANT ALL PRIVILEGES ON db_tokoonline.* TO 'adminer'@'127.0.0.1'; FLUSH PRIVILEGES;`
+6. Click Login again with the same Gmail → you end up logged in on `/beranda` again; no duplicate `user` row is created.
+7. Admin restriction: try Login with the admin email `kelompok3@gmail.com` → you are **not** logged in as admin (still a guest) and no `customer` row is created; the `msgError` flash is set and becomes visible once the layout renders flash messages (Week 4).
+8. Without Google credentials yet: `/auth/redirect` still redirects to Google's consent URL (with an empty `client_id`), and `/auth/google/callback` reached without OAuth state redirects gracefully to `/`.
+
+**Files to inspect**
+
+| File | What changed |
+| --- | --- |
+| `composer.json`, `composer.lock` | added `laravel/socialite` `^5.31` |
+| `.env`, `.env.example` | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URL` |
+| `config/services.php` | `google` block |
+| `database/migrations/2026_10_17_120000_create_customer_table.php` | new `customer` table (new file) |
+| `app/Models/Customer.php` | new model + `deleting` hook (new file) |
+| `app/Http/Controllers/CustomerController.php` | `redirect`, `callback`, `logout` (new file) |
+| `routes/web.php` | `auth.redirect`, `auth.callback`, `logout` routes |
+| `resources/views/v_layouts/app.blade.php` | Account-area Login/Daftar links |
+| `docs/blueprint-customer.md` | customer table/relation design doc (new file) |
+
+**Verified**
+
+- Kernel suite with mocked Socialite: **21/21 PASS** — new `user` + `customer` created with role 2 / status 1 / bcrypt hash, session authenticated, admin email rejected without login (flash set), logout tears the session down, test rows cleaned up afterwards.
+- HTTP suite against `php artisan serve`: **39/39 PASS** — `/auth/redirect` → 302 to `https://accounts.google.com/o/oauth2/auth?...` with the configured `redirect_uri`; callback without OAuth state → 302 back to `/`; `POST /logout` → 419 without CSRF and 302 to `/` with it; storefront pages unchanged (home 6 cards, all-products 6 + 4, each category 2, blocked product 404); `/backend/login` 200; all checked assets 200.
+- Database after the mocked/HTTP suites: 3 users, 0 customers (no test leftovers).
+- **Real end-to-end Google login succeeded (2026-10-17)** with the user's own OAuth client: registering with a real Google account created `user` id 6 ("rahmat mubarok", role 2, status 1) and `customer` id 3 (`google_id` and `google_token` filled); the same account logging in again does not create duplicates. The header still shows "Login / Daftar" until Week 4. (`.env` holds the real Google credentials; `.env.example` keeps empty placeholders.)
+- Database browser: **phpMyAdmin 5.2.3** at http://localhost/phpmyadmin/ (auto-login as MySQL user `adminer`; installed into Laragon's pre-existing `etc/apps/phpMyAdmin` alias target) — registration rows are visible under `db_tokoonline` → `user` / `customer`. Adminer remains available at http://localhost/adminer/ (`adminer` / `adminer`).
+- Environment note: on this machine plain `php artisan serve` initially failed with `Failed to listen on 127.0.0.1:8000 (reason: ?)` — a known Laravel-on-Windows bug (Herd's `php.ini` had `variables_order = "EGPCS"`; Laravel's env whitelist for the child server is case-sensitive, so `Path`/`SystemRoot` were stripped and `php -S` could not bind). Fixed by setting `variables_order = "GPCS"` in `C:\Users\TAMU\.config\herd\bin\php84\php.ini` (backup: `php.ini.egpcs-backup`); plain `php artisan serve` now works.

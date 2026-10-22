@@ -6,6 +6,7 @@ use App\Http\Controllers\LoginController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\KategoriController;
 use App\Http\Controllers\ProdukController;
+use App\Http\Controllers\CustomerController;
 
 
 /*
@@ -29,6 +30,11 @@ Route::get('/produk/all', [ProdukController::class, 'produkAll'])->name('produk.
 Route::get('/produk/kategori/{id}', [ProdukController::class, 'produkKategori'])->name('produk.kategori');
 Route::get('/produk/detail/{id}', [ProdukController::class, 'detail'])->name('produk.detail');
 
+// Route autentikasi customer via Google
+Route::get('/auth/redirect', [CustomerController::class, 'redirect'])->name('auth.redirect');
+Route::get('/auth/google/callback', [CustomerController::class, 'callback'])->name('auth.callback');
+Route::post('/logout', [CustomerController::class, 'logout'])->name('logout');
+
 Route::get('backend/beranda', [BerandaController::class, 'berandaBackend'])->name('backend.beranda')->middleware('auth'); 
  
 Route::get('backend/login', [LoginController::class, 'loginBackend'])->name('backend.login'); 
@@ -46,6 +52,8 @@ Route::post('backend/laporan/cetakuser', [UserController::class, 'cetakUser'])
     ->middleware('auth');
 
 Route::resource('backend/kategori', KategoriController::class, ['as' => 'backend'])->middleware('auth');
+
+Route::resource('backend/customer', CustomerController::class, ['as' => 'backend'])->middleware('auth');
 
 Route::resource('backend/produk', ProdukController::class, ['as' => 'backend'])->middleware('auth');
 Route::post('foto-produk/store', [ProdukController::class, 'storeFoto'])
