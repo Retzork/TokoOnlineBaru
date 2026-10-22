@@ -53,6 +53,8 @@ Route::post('backend/laporan/cetakuser', [UserController::class, 'cetakUser'])
 
 Route::resource('backend/kategori', KategoriController::class, ['as' => 'backend'])->middleware('auth');
 
+Route::resource('backend/customer', CustomerController::class, ['as' => 'backend'])->middleware('auth');
+
 Route::resource('backend/produk', ProdukController::class, ['as' => 'backend'])->middleware('auth');
 Route::post('foto-produk/store', [ProdukController::class, 'storeFoto'])
     ->name('backend.foto_produk.store')
