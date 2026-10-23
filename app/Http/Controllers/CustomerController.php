@@ -26,7 +26,9 @@ class CustomerController extends Controller
      */
     public function redirect()
     {
-        return Socialite::driver('google')->redirect();
+        /** @var \Laravel\Socialite\Two\AbstractProvider $provider */
+        $provider = Socialite::driver('google');
+        return $provider->with(['prompt' => 'select_account'])->redirect();
     }
 
     /**
@@ -66,7 +68,7 @@ class CustomerController extends Controller
                 Auth::login($user);
             }
 
-            return redirect()->route('beranda');
+            return redirect('/');
         } catch (\Exception $e) {
             return redirect('/')->with('msgError', 'Login gagal: ' . $e->getMessage());
         }
