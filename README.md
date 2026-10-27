@@ -29,6 +29,7 @@ This README has two jobs:
 | Area | URL | Credentials |
 | --- | --- | --- |
 | Storefront | http://127.0.0.1:8000 | — |
+| Customer login (email/password) | http://127.0.0.1:8000/customer/login | `nailah22@gmail.com` / `customer123` |
 | Admin backend | http://127.0.0.1:8000/backend/login | `kelompok3@gmail.com` / `kelompok123@` |
 | Mailpit (mail catcher) | http://localhost:8025 | — |
 | Database browser (phpMyAdmin) | http://localhost/phpmyadmin/ | auto-login as `adminer` (MySQL user with rights on `db_tokoonline` only) |
@@ -82,9 +83,9 @@ Completed: <date>
 | 1 | Frontend Setup and Home Page | :white_check_mark: Done |
 | 2 | Product Display (list, detail, category filter, all products, pagination) | :white_check_mark: Done |
 | 3 | Customer Registration and Login with Google (Socialite) | :white_check_mark: Done |
-| 4 | Account Management (frontend session + backend customer list) | Not started |
-| 5 | Route Groups and Middleware (customer account page) | Not started |
-| 6 | Shopping Cart | Not started |
+| 4 | Account Management (frontend session + backend customer list) | :white_check_mark: Covered by Week 5 |
+| 5 | Route Groups and Middleware (customer account page) | :white_check_mark: Done |
+| 6 | Shopping Cart | :white_check_mark: Done |
 | 7 | RajaOngkir Shipping Cost API (standalone test page) | Not started |
 | 9 | Ordering and Checkout Flow | Not started |
 | 10 | Order Management (backend) and Invoices | Not started |
@@ -287,3 +288,114 @@ Completed: 2026-10-17
 - **Real end-to-end Google login succeeded (2026-10-17)** with the user's own OAuth client: registering with a real Google account created `user` id 6 ("rahmat mubarok", role 2, status 1) and `customer` id 3 (`google_id` and `google_token` filled); the same account logging in again does not create duplicates. The header still shows "Login / Daftar" until Week 4. (`.env` holds the real Google credentials; `.env.example` keeps empty placeholders.)
 - Database browser: **phpMyAdmin 5.2.3** at http://localhost/phpmyadmin/ (auto-login as MySQL user `adminer`; installed into Laragon's pre-existing `etc/apps/phpMyAdmin` alias target) — registration rows are visible under `db_tokoonline` → `user` / `customer`. Adminer remains available at http://localhost/adminer/ (`adminer` / `adminer`).
 - Environment note: on this machine plain `php artisan serve` initially failed with `Failed to listen on 127.0.0.1:8000 (reason: ?)` — a known Laravel-on-Windows bug (Herd's `php.ini` had `variables_order = "EGPCS"`; Laravel's env whitelist for the child server is case-sensitive, so `Path`/`SystemRoot` were stripped and `php -S` could not bind). Fixed by setting `variables_order = "GPCS"` in `C:\Users\TAMU\.config\herd\bin\php84\php.ini` (backup: `php.ini.egpcs-backup`); plain `php artisan serve` now works.
+
+### Week 5 — Route Groups and Middleware :white_check_mark:
+
+Completed: 2026-10-27
+
+**Goal:** protect the customer pages with a custom middleware and group the customer routes (module Minggu Ke-5). This also delivers the frontend account page listed as Week 4 in the earlier plan.
+
+**What was done**
+
+- `app/Http/Middleware/IsCustomer.php` — new: `auth()->check() && auth()->user()->role == 2` passes, otherwise redirect to `/auth/redirect` with a `msgError` flash (`Anda harus login sebagai customer`).
+- `app/Http/Kernel.php` — registered the alias `'is.customer' => \App\Http\Middleware\IsCustomer::class` in `$middlewareAliases`.
+- `app/Http/Controllers/CustomerController.php` — `akun($id)` (redirects to the logged-in customer's own id with `msgError` when the id does not match) and `updateAkun(Request $request, $id)` (validates `nama`, `hp`, `foto`, plus conditional `email`/`alamat`/`pos`, deletes the old photo, resizes the new one with `ImageHelper::uploadAndResize(..., 385, 400)` into `storage/img-customer/`).
+- `routes/web.php` — `Route::middleware('is.customer')->group(...)` containing `customer.akun` (`GET /customer/akun/{id}`) and `customer.updateakun` (`PUT /customer/updateakun/{id}`).
+- `resources/views/v_customer/edit.blade.php` — new account form (photo preview, nama, email, HP, alamat, kode pos, success/error alerts).
+- `resources/views/v_layouts/app.blade.php` — "Akun Saya" in the account dropdown now points to `route('customer.akun', ['id' => Auth::user()->id])`.
+- `public/image/img-default.jpg` — default avatar for customers without a photo.
+- **Login fallback:** because `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are empty in this environment, an email/password customer login was added — `loginForm()` / `loginProses()` in `CustomerController`, routes `customer.login` (`GET /customer/login`) and `customer.login.proses` (`POST /customer/login`), view `resources/views/v_customer/login.blade.php`. The header dropdown now has **Login** (email/password) and **Login Google** (`auth.redirect`).
+- `.env` — `GOOGLE_REDIRECT_URL` aligned with `APP_URL` (`http://127.0.0.1:8000/auth/google/callback`) to avoid `redirect_uri_mismatch`.
+
+**Known issues from the module fixed**
+
+- `'email' => 'unique:customer'` → `unique:user` (the `customer` table has no `email` column).
+- Account view guarded on `$edit->foto` (no such column) → `$edit->user->foto`.
+- Module's default photo path `storage/img-user/img-default.jpg` lives inside the git-ignored `public/storage` → moved to `asset('image/img-default.jpg')` so it is committed.
+- `user.role` is a MySQL `ENUM('0','1','2')`: assigning the integer `2` is read as the enum *index* and silently stores `'1'`, so the middleware rejects the user. Always assign the string `'2'` (e.g. `$user->role = '2';` / `SET role='2'`).
+- Route name kept consistent between the form and the route: `customer.updateakun`.
+
+**How to check**
+
+1. Start MySQL, run `php artisan serve`, open http://127.0.0.1:8000/customer/login and sign in with `nailah22@gmail.com` / `customer123`.
+   → Redirected to `/beranda`, the header now shows the account name instead of "Login / Daftar".
+2. Header "Akun Saya" → `Akun Saya` → opens `/customer/akun/{id}` with the account form and the default avatar.
+3. Change nama / HP / alamat / kode pos, optionally upload a photo (max 1024 KB), click **Simpan** → "Data berhasil diperbarui"; the new photo appears in `public/storage/img-customer/`.
+4. Edit the URL to someone else's id (`/customer/akun/1`) → redirected back to your own id with "Anda tidak berhak mengakses akun ini."
+5. Log out, then open `/customer/akun/4` or `/cart` → redirected to the Google login (`/auth/redirect`), because `is.customer` rejects guests.
+6. Log in with an admin account (`kelompok3@gmail.com`) → the same pages reject it (role ≠ 2), admin login stays on `/backend/login`.
+
+**Files to inspect**
+
+| File | What changed |
+| --- | --- |
+| `app/Http/Middleware/IsCustomer.php` | new middleware (new file) |
+| `app/Http/Kernel.php` | `is.customer` alias |
+| `app/Http/Controllers/CustomerController.php` | `akun`, `updateAkun`, `loginForm`, `loginProses` |
+| `routes/web.php` | `is.customer` route group + local login routes |
+| `resources/views/v_customer/edit.blade.php` | account form (new file) |
+| `resources/views/v_customer/login.blade.php` | email/password login (new file) |
+| `resources/views/v_layouts/app.blade.php` | Akun Saya link, Login + Login Google menu |
+| `public/image/img-default.jpg` | default avatar (new file) |
+
+**Verified**
+
+- `php -l` clean on the middleware, controller and routes; `php artisan view:cache` compiles all Blade templates.
+- `php artisan route:list --path=cart -v` shows `App\Http\Middleware\IsCustomer` on every route in the group.
+- HTTP: `GET /customer/login` → 200; `POST /customer/login` with the test account → 302 to `/beranda`; `GET /cart` with the customer session → 200; without a session → redirect to `/auth/redirect`.
+- Account page renders the customer row (`customer` id 1) through `Customer::where('user_id', ...)`, and the photo fallback loads from `image/img-default.jpg`.
+
+### Week 6 — Shopping Cart :white_check_mark:
+
+Completed: 2026-10-27
+
+**Goal:** let a logged-in customer add products to a cart (an `order` row with status `pending`) and see the cart with prices, quantities, weights and totals (module Minggu Ke-6).
+
+**What was done**
+
+- `database/migrations/2026_10_27_000000_create_order_table.php` — `order`: `customer_id` (FK → `customer.id`, cascade), nullable `user_id` (FK → `user.id`, cascade), `status`, `noresi`, `kurir`, `layanan_ongkir`, `biaya_ongkir`, `estimasi_ongkir`, `total_berat`, `total_harga`, `alamat`, `pos`, timestamps.
+- `database/migrations/2026_10_27_000001_create_order_item_table.php` — `order_item`: `order_id` (FK → `order.id`, cascade), `produk_id` (FK → `produk.id`, cascade), `quantity`, `harga`, timestamps.
+- `app/Models/Order.php` — `$table = 'order'`, `$fillable`, `orderItems()` hasMany, `customer()` belongsTo.
+- `app/Models/OrderItem.php` — `$table = 'order_item'`, `$fillable`, `order()` belongsTo, `produk()` belongsTo.
+- `app/Http/Controllers/OrderController.php` — `addToCart($id)`: `Customer::where('user_id', Auth::id())`, `firstOrCreate` the pending order, `firstOrCreate` the item, increment quantity when the item already exists, add the price to `total_harga`, then redirect to the cart with a success flash. `viewCart()`: loads the pending/paid order with `orderItems.produk`.
+- `routes/web.php` — inside the `is.customer` group: `POST add-to-cart/{id}` (`order.addToCart`), `GET cart` (`order.cart`).
+- `resources/views/v_order/cart.blade.php` — new cart table (thumb, nama, berat, stok, harga, quantity, subtotal), empty-state message, hidden `total_price` / `total_weight` for the shipping step in Week 7.
+- `resources/views/v_layouts/app.blade.php` — the header "Lihat Keranjang" button now opens `route('order.cart')`.
+- Pesan buttons wired to `route('order.addToCart', $row->id)` in `v_beranda/index.blade.php`, `v_produk/index.blade.php`, `v_produk/produkkategori.blade.php` and `v_produk/detail.blade.php`.
+
+**Known issues from the module fixed**
+
+- `Order::where('status', 'pending', 'paid')` (invalid third argument, silently drops the filter) → `whereIn('status', ['pending', 'paid'])`.
+- `php artisan make:migration create_order_ item _table` typo → `create_order_item_table`.
+- `OrderItem::kategori()` referenced a `kategori_id` that `order_item` does not have → removed.
+- Added a guard when a role-2 user has no `customer` row yet → redirect to `/auth/redirect` with a message instead of a fatal error.
+- Cart **Update** / **Hapus** forms are intentionally left as `action="#"` (the module introduces them in a later week); totals are computed in the view exactly like the module.
+
+**How to check**
+
+1. Log in (Week 5), then click **Pesan** on any product card on `/beranda` → redirected to `/cart`, one row with the product photo, "Berat", "Stok", price `Rp. 25.000`, quantity `1` and subtotal.
+2. Click **Pesan** on the same product again → the same row, quantity `2`, subtotal doubles, `order.total_harga` increases.
+3. Add a different product → a second row appears; the hidden `total_price` / `total_weight` inputs carry the cart totals.
+4. Log out and open `/cart` → redirected to the Google login (guests cannot see a cart).
+5. Database check: `SELECT id, customer_id, status, total_harga FROM db_tokoonline.order;` and `SELECT order_id, produk_id, quantity, harga FROM db_tokoonline.order_item;`.
+
+**Files to inspect**
+
+| File | What changed |
+| --- | --- |
+| `database/migrations/2026_10_27_000000_create_order_table.php` | new `order` table (new file) |
+| `database/migrations/2026_10_27_000001_create_order_item_table.php` | new `order_item` table (new file) |
+| `app/Models/Order.php`, `app/Models/OrderItem.php` | new models + relations (new files) |
+| `app/Http/Controllers/OrderController.php` | new controller with `addToCart`, `viewCart` (new file) |
+| `routes/web.php` | `order.addToCart`, `order.cart` inside the `is.customer` group |
+| `resources/views/v_order/cart.blade.php` | cart table (new file) |
+| `resources/views/v_beranda/index.blade.php`, `v_produk/*.blade.php` | Pesan forms point to `order.addToCart` |
+| `resources/views/v_layouts/app.blade.php` | "Lihat Keranjang" links to `order.cart` |
+
+**Verified**
+
+- `php artisan migrate` created both tables; `php artisan tinker --execute="echo App\Models\Order::count()"` works, so the reserved table name `order` is quoted correctly.
+- HTTP suite (server on 127.0.0.1:8000, customer session): `POST /add-to-cart/1` → 302 to `/cart`; `GET /cart` → 200 with the cart table; `GET /cart` without a session → 302 to `/auth/redirect`.
+- Database after the test: `order` id 1 (`customer_id` 1, status `pending`, `total_harga` 25000) and `order_item` id 1 (`produk_id` 1, quantity 1, price 25000) — totals match the product price.
+
+Next in the module: **Minggu Ke-7 — Integrasi API RajaOngkir untuk Ongkos Kirim** (the cart's "Pilih Pengiriman" form is the entry point).

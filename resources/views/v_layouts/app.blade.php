@@ -107,7 +107,7 @@
 									</div>
 								</div>
 								<ul class="custom-menu">
-									<li><a href="#"><i class="fa fa-user-o"></i> Akun Saya</a></li>
+									<li><a href="{{ route('customer.akun', ['id' => Auth::user()->id]) }}"><i class="fa fa-user-o"></i> Akun Saya</a></li>
 									<li><a href="#"><i class="fa fa-check"></i> History</a></li>
 									<li>
 										<a href="#" onclick="event.preventDefault(); document.getElementById('keluar-app').submit();">
@@ -129,7 +129,8 @@
 									</div>
 								</div>
 								<ul class="custom-menu">
-									<li><a href="{{ route('auth.redirect') }}"><i class="fa fa-unlock-alt"></i> Login</a></li>
+									<li><a href="{{ route('customer.login') }}"><i class="fa fa-unlock-alt"></i> Login</a></li>
+									<li><a href="{{ route('auth.redirect') }}"><i class="fa fa-google"></i> Login Google</a></li>
 									<li><a href="#"><i class="fa fa-user-plus"></i> Daftar</a></li>
 								</ul>
 							@endif
@@ -152,7 +153,7 @@
 								<div id="shopping-cart">
 									<div class="shopping-cart-list"></div>
 									<div class="shopping-cart-btns">
-										<button class="main-btn">Lihat Keranjang</button>
+										<a href="{{ route('order.cart') }}"><button class="main-btn">Lihat Keranjang</button></a>
 										<button class="primary-btn">Checkout <i class="fa fa-arrow-circle-right"></i></button>
 									</div>
 								</div>

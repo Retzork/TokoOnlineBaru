@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Customer;
 use App\Models\User;
+use App\Helpers\ImageHelper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -84,5 +85,125 @@ class CustomerController extends Controller
         $request->session()->regenerateToken();
 
         return redirect('/');
+    }
+
+    /**
+     * Halaman akun customer (frontend).
+     */
+    public function akun($id)
+    {
+        $loggedInCustomerId = Auth::user()->id;
+
+        // Cek apakah ID yang diberikan sama dengan ID customer yang sedang login
+        if ($id != $loggedInCustomerId) {
+            return redirect()->route('customer.akun', ['id' => $loggedInCustomerId])
+                ->with('msgError', 'Anda tidak berhak mengakses akun ini.');
+        }
+
+        $customer = Customer::where('user_id', $id)->firstOrFail();
+
+        return view('v_customer.edit', [
+            'judul' => 'Customer',
+            'subJudul' => 'Akun Customer',
+            'edit' => $customer
+        ]);
+    }
+
+    /**
+     * Simpan perubahan akun customer (frontend).
+     */
+    public function updateAkun(Request $request, $id)
+    {
+        $customer = Customer::where('user_id', $id)->firstOrFail();
+
+        $rules = [
+            'nama' => 'required|max:255',
+            'hp' => 'required|min:10|max:13',
+            'foto' => 'image|mimes:jpeg,jpg,png,gif|file|max:1024',
+        ];
+        $messages = [
+            'foto.image' => 'Format gambar gunakan file dengan ekstensi jpeg, jpg, png, atau gif.',
+            'foto.max' => 'Ukuran file gambar Maksimal adalah 1024 KB.'
+        ];
+
+        if ($request->email != $customer->user->email) {
+            $rules['email'] = 'required|max:255|email|unique:user';
+        }
+        if ($request->alamat != $customer->alamat) {
+            $rules['alamat'] = 'required';
+        }
+        if ($request->pos != $customer->pos) {
+            $rules['pos'] = 'required';
+        }
+
+        $validatedData = $request->validate($rules, $messages);
+
+        // menggunakan ImageHelper
+        if ($request->file('foto')) {
+            // hapus gambar lama
+            if ($customer->user->foto) {
+                $oldImagePath = public_path('storage/img-customer/') . $customer->user->foto;
+                if (file_exists($oldImagePath)) {
+                    unlink($oldImagePath);
+                }
+            }
+            $file = $request->file('foto');
+            $extension = $file->getClientOriginalExtension();
+            $originalFileName = date('YmdHis') . '_' . uniqid() . '.' . $extension;
+            $directory = 'storage/img-customer/';
+            // Simpan gambar dengan ukuran yang ditentukan
+            ImageHelper::uploadAndResize($file, $directory, $originalFileName, 385, 400);
+            // Simpan nama file asli di database
+            $validatedData['foto'] = $originalFileName;
+        }
+
+        $customer->user->update($validatedData);
+        $customer->update([
+            'alamat' => $request->input('alamat'),
+            'pos' => $request->input('pos'),
+        ]);
+
+        return redirect()->route('customer.akun', $id)->with('success', 'Data berhasil diperbarui');
+    }
+
+    /**
+     * Form login customer dengan email & password.
+     * Dipakai sebagai alternatif selama OAuth Google belum dikonfigurasi.
+     */
+    public function loginForm()
+    {
+        return view('v_customer.login');
+    }
+
+    /**
+     * Proses login customer dengan email & password.
+     */
+    public function loginProses(Request $request)
+    {
+        $credentials = $request->validate([
+            'email' => 'required|email',
+            'password' => 'required',
+        ]);
+
+        if (!Auth::attempt($credentials)) {
+            return back()->with('msgError', 'Email atau password salah')->withInput();
+        }
+
+        $user = Auth::user();
+
+        if ($user->role != 2) {
+            Auth::logout();
+            return back()->with('msgError', 'Akun ini bukan akun customer');
+        }
+
+        // Pastikan data customer tersedia
+        Customer::firstOrCreate(
+            ['user_id' => $user->id],
+            ['google_id' => null, 'google_token' => null]
+        );
+
+        $request->session()->regenerate();
+
+        return redirect()->route('beranda')->with('success', 'Selamat datang, ' . $user->nama);
     }
 }
