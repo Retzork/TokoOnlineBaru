@@ -9,24 +9,6 @@
 				<h3 class="title"> {{$judul}} </h3>
 			</div>
 			<div class="row">
-				<div class="col-md-12">
-					<!-- msgSuccess -->
-					@if(session()->has('success'))
-					<div class="alert alert-success alert-dismissible" role="alert">
-						<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-						<strong>{{ session('success') }}</strong>
-					</div>
-					@endif
-					<!-- end msgSuccess -->
-					<!-- msgError -->
-					@if(session()->has('msgError'))
-					<div class="alert alert-danger alert-dismissible" role="alert">
-						<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-						<strong>{{ session('msgError') }}</strong>
-					</div>
-					@endif
-					<!-- end msgError -->
-				</div>
 				<form action="{{ route('customer.updateakun', $edit->user->id) }}" method="post" enctype="multipart/form-data">
 					@method('put')
 					@csrf

@@ -8,22 +8,6 @@
 			<p>KERANJANG</p>
 			<h3 class="title">Keranjang Belanja</h3>
 		</div>
-		<!-- msgSuccess -->
-		@if(session()->has('success'))
-		<div class="alert alert-success alert-dismissible" role="alert">
-			<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-			<strong>{{ session('success') }}</strong>
-		</div>
-		@endif
-		<!-- end msgSuccess -->
-		<!-- msgError -->
-		@if(session()->has('error'))
-		<div class="alert alert-danger alert-dismissible" role="alert">
-			<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-			<strong>{{ session('error') }}</strong>
-		</div>
-		@endif
-		<!-- end msgError -->
 		@if($order && $order->orderItems->count() > 0)
 		<table class="shopping-cart-table table">
 			<thead>

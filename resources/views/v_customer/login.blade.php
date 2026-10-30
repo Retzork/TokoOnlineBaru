@@ -9,13 +9,6 @@
 				<h3 class="title">Login Customer</h3>
 			</div>
 
-			@if(session()->has('msgError'))
-			<div class="alert alert-danger alert-dismissible" role="alert">
-				<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
-				<strong>{{ session('msgError') }}</strong>
-			</div>
-			@endif
-
 			<form action="{{ route('customer.login.proses') }}" method="post">
 				@csrf
 

@@ -8,6 +8,7 @@ use App\Http\Controllers\KategoriController;
 use App\Http\Controllers\ProdukController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\RajaOngkirController;
 
 
 /*
@@ -30,6 +31,13 @@ Route::get('/beranda', [BerandaController::class, 'index'])->name('beranda');
 Route::get('/produk/all', [ProdukController::class, 'produkAll'])->name('produk.all');
 Route::get('/produk/kategori/{id}', [ProdukController::class, 'produkKategori'])->name('produk.kategori');
 Route::get('/produk/detail/{id}', [ProdukController::class, 'detail'])->name('produk.detail');
+
+// Cek ongkir RajaOngkir (Minggu 7)
+Route::view('/cek-ongkir', 'ongkir')->name('ongkir.index');
+Route::get('/provinces', [RajaOngkirController::class, 'getProvinces'])->name('ongkir.provinces');
+Route::get('/cities', [RajaOngkirController::class, 'getCities'])->name('ongkir.cities');
+Route::get('/districts', [RajaOngkirController::class, 'getDistricts'])->name('ongkir.districts');
+Route::post('/cost', [RajaOngkirController::class, 'getCost'])->name('ongkir.cost');
 
 // Route autentikasi customer via Google
 Route::get('/auth/redirect', [CustomerController::class, 'redirect'])->name('auth.redirect');
