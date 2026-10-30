@@ -86,7 +86,7 @@ Completed: <date>
 | 4 | Account Management (frontend session + backend customer list) | :white_check_mark: Covered by Week 5 |
 | 5 | Route Groups and Middleware (customer account page) | :white_check_mark: Done |
 | 6 | Shopping Cart | :white_check_mark: Done |
-| 7 | RajaOngkir Shipping Cost API (standalone test page) | Not started |
+| 7 | RajaOngkir Shipping Cost API (standalone test page) | :white_check_mark: Done |
 | 9 | Ordering and Checkout Flow | Not started |
 | 10 | Order Management (backend) and Invoices | Not started |
 | 11 | Order Chart (admin dashboard) | Not started |
@@ -398,4 +398,102 @@ Completed: 2026-10-27
 - HTTP suite (server on 127.0.0.1:8000, customer session): `POST /add-to-cart/1` → 302 to `/cart`; `GET /cart` → 200 with the cart table; `GET /cart` without a session → 302 to `/auth/redirect`.
 - Database after the test: `order` id 1 (`customer_id` 1, status `pending`, `total_harga` 25000) and `order_item` id 1 (`produk_id` 1, quantity 1, price 25000) — totals match the product price.
 
-Next in the module: **Minggu Ke-7 — Integrasi API RajaOngkir untuk Ongkos Kirim** (the cart's "Pilih Pengiriman" form is the entry point).
+### Week 7 — RajaOngkir Shipping Cost API (standalone test page) :white_check_mark:
+
+Completed: 2026-10-29
+
+**Goal:** integrate RajaOngkir so a simple page can load destination areas and calculate shipping cost by origin/destination, weight and courier (module Minggu Ke-7).
+
+**What was done**
+
+- `config/services.php` — new `rajaongkir` block (`api_key`, `base_url`, `timeout`).
+- `.env.example` — `RAJAONGKIR_API_KEY`, `RAJAONGKIR_BASE_URL=https://rajaongkir.komerce.id/api`, `RAJAONGKIR_TIMEOUT=15`.
+- `app/Http/Controllers/RajaOngkirController.php` — new controller using **RajaOngkir V2**:
+  - `getProvinces()` → `GET /v1/destination/province`
+  - `getCities()` → `GET /v1/destination/city/{province_id}` with `province_id` validation
+  - `getDistricts()` → `GET /v1/destination/district/{city_id}` with `city_id` validation
+  - `getCost()` → `POST /v1/calculate/domestic-cost` with `origin`/`destination` **district IDs**, `weight` and `courier` as form data
+  - V2 `meta` + `data` responses are normalized to a consistent `rajaongkir.status` / `rajaongkir.results` shape; missing key, connection failures, API errors and malformed responses return readable JSON errors.
+- `routes/web.php` — `GET /cek-ongkir` (`ongkir.index`), `GET /provinces` (`ongkir.provinces`), `GET /cities` (`ongkir.cities`), `GET /districts` (`ongkir.districts`), `POST /cost` (`ongkir.cost`).
+- `resources/views/ongkir.blade.php` — standalone test page (no storefront layout):
+  - **Lokasi Asal (Toko)** and **Lokasi Tujuan**, each with cascading province → city/kabupaten → kecamatan dropdowns
+  - weight in grams and courier select (JNE/TIKI/POS)
+  - loading/error messages and a result table with courier, service, description, rupiah cost and estimated days
+  - V2 returns ETD in English (`8 day`), so the view converts `day/days` to `hari` instead of printing `8 day hari`.
+- `tests/Feature/RajaOngkirTest.php` — HTTP tests with `Http::fake()` for the page, location endpoints, cost payload, validation, missing key and API error.
+
+**Known issues from the module fixed**
+
+- **The module's old Starter endpoint is retired.** `https://api.rajaongkir.com/starter` no longer responds (timeout in 2026); current Komerce/RajaOngkir keys use V2 at `https://rajaongkir.komerce.id/api/v1`. The implementation was migrated to V2 so a newly registered key actually works.
+- **V2 cost needs district (kecamatan) IDs, not city IDs.** The page therefore adds a district dropdown for both origin and destination; this is the smallest number of API calls with the current V2 hierarchy.
+- The API key is no longer written in a route/controller. It is read from `.env` through `config('services.rajaongkir.*')`, so `php artisan config:cache` keeps working.
+- Added validation for `province_id`, `city_id`, `origin`, `destination`, `weight` (integer ≥ 1) and `courier` (only `jne`, `tiki`, `pos`); invalid input returns 422 instead of being forwarded to RajaOngkir.
+- `Http::post()` sent JSON while the API expects form parameters → `asForm()->post()`.
+- Missing API key, connection failure, API error and non-RajaOngkir responses now return a readable message instead of a 500 error.
+- The base URL is normalized (no double slash) and the page reports errors in the UI instead of only logging them to the browser console.
+- V2 sends the estimated delivery time in English (`8 day`); the result table now shows `8 hari` instead of the duplicated `8 day hari`.
+
+**How to check**
+
+1. Register at https://collaborator.komerce.id/registration, copy the API key, then set `RAJAONGKIR_API_KEY=...` in `.env` (keep `RAJAONGKIR_BASE_URL=https://rajaongkir.komerce.id/api`).
+2. Run `php artisan config:clear`, start MySQL (not needed for this page, but keeps the rest of the app working), then `php artisan serve`.
+3. Open http://127.0.0.1:8000/cek-ongkir → the page shows "Cek Ongkir" and both origin/destination province dropdowns are filled from RajaOngkir.
+4. Choose an origin province → city → kecamatan (the store location), then a destination province → city → kecamatan. Enter e.g. `1000` grams, choose `JNE`, click **Cek Ongkir**.
+5. → A result table appears with the courier, service (e.g. `REG`), description, rupiah cost and estimated days. Changing a province resets its city/district because IDs are hierarchical.
+6. Remove/empty `RAJAONGKIR_API_KEY` and reload → a yellow warning is shown and the endpoints return `503` with "RAJAONGKIR_API_KEY belum diatur...". With an invalid key, the RajaOngkir error description (e.g. "Invalid Api key, key not found") is shown in the page.
+7. Regression check → http://127.0.0.1:8000/beranda and `/cart` behave as before; `php artisan route:list --except-vendor` lists the five `ongkir.*` routes.
+
+**Files to inspect**
+
+| File | What changed |
+| --- | --- |
+| `config/services.php` | new `rajaongkir` config block |
+| `.env.example` | RajaOngkir V2 environment variables |
+| `app/Http/Controllers/RajaOngkirController.php` | new controller (provinces, cities, districts, cost, normalization, error handling) |
+| `routes/web.php` | `/cek-ongkir`, `/provinces`, `/cities`, `/districts`, `/cost` routes |
+| `resources/views/ongkir.blade.php` | standalone shipping-cost test page (new file) |
+| `tests/Feature/RajaOngkirTest.php` | feature tests with a fake RajaOngkir V2 API (new file) |
+
+**Verified**
+
+- `php -l` clean on the controller, routes and test file; `php artisan route:list --except-vendor` shows `ongkir.index`, `ongkir.provinces`, `ongkir.cities`, `ongkir.districts`, `ongkir.cost`.
+- `php artisan test --filter=RajaOngkirTest`: **7 passed, 39 assertions**; the page test is reported as "deprecated" only because Laravel 10 triggers PHP 8.4 implicit-nullable notices from the framework, not from this feature.
+- Full suite after fixing the stale Laravel scaffold test (`/` now asserts the documented redirect to `/beranda`): **9 passed, 42 assertions** (2026-10-29).
+- HTTP check on a local server: `GET /cek-ongkir` → 200 and contains "Lokasi Asal (Toko)" + "Lokasi Tujuan"; `GET /provinces` and `/cities` → 503 JSON while `RAJAONGKIR_API_KEY` is empty (expected).
+- Browser check (Edge/Playwright) against a local RajaOngkir V2 mock: origin DIWEK → destination GAMBIR, 1000 g, JNE → REG `Rp 18.000` (2-3 hari) and YES `Rp 32.000` (1-1 hari); the success message appears and the browser console has no errors.
+- **Live test with the configured Komerce/RajaOngkir key (2026-10-29):** `/provinces` → 34 provinces; `/cities?province_id=1` → 9 cities; `/districts?city_id=1` → 6 districts; `POST /cost` from MATARAM (district 1) to NUSANIWE (district 117), 1000 g, JNE → JTR `Rp 165.000` (30 hari) and REG `Rp 20.000` (8 hari). The full page flow (province → city → district for both ends → Cek Ongkir) was run in Edge/Playwright; results rendered and the browser console had no errors.
+- The module's old host `https://api.rajaongkir.com/starter/province` times out, which is why the implementation targets V2.
+
+## Local end-to-end run — Weeks 1–7 (2026-10-29)
+
+The project was run from a clean local state and all seven weeks were exercised in Edge/Playwright.
+
+**Environment restored**
+
+- MySQL 8.4 (Laragon) started; `php artisan serve` on `127.0.0.1:8000`.
+- `php artisan migrate` applied the two pending Week 6 migrations (`order`, `order_item`).
+- `php artisan storage:link` + 52 seed photos copied to `storage/app/public/img-produk/` (product photos were 404 before).
+- Demo customer recreated because the local `customer` table was empty: `nailah22@gmail.com` / `customer123` (`user` id 8, `customer` id 4). The cart is left with a demo state: 2 × Kue Lapis Tradisional + 1 × Onde-Onde Spesial = Rp 70.000.
+
+**Fixes made during the run**
+
+- `public/frontend/css/slick-theme.css` — slick font URLs pointed to `css/fonts/` but the fonts live in `frontend/fonts/`; changed to `../fonts/`. Removed the missing `ajax-loader.gif` reference (the loader now uses a plain white background). This clears the three local 404s.
+- `resources/views/v_layouts/app.blade.php` — added a global flash-message block (`success`, `msgError`, `error`) so login success and middleware errors are visible; removed the now-duplicate local blocks from `v_customer/login.blade.php`, `v_order/cart.blade.php` and `v_customer/edit.blade.php`.
+- `resources/views/v_layouts/app.blade.php` — header cart badge/total now reflect the logged-in customer's pending order (`$cartQty`, `$cartTotal`) instead of the hardcoded `0` / `Rp. 0`.
+
+**Verified (Edge/Playwright + HTTP)**
+
+| Week | Check | Result |
+| --- | --- | --- |
+| 1 | `/` → `/beranda`, title, 3 banners, 5 categories, local images | 200, no broken images; all local assets 200 after the slick fix |
+| 2 | home 6 cards; `/produk/all` page 1 = 6, page 2 = 4; category filters; detail; blocked product | all 200; `/produk/detail/8` = 404; 3-image gallery on product 1 |
+| 3/5 | email/password login, account page, unauthorized account id | login redirects to `/beranda`, header shows "NAILAH"; account form loads; `/customer/akun/1` redirects to own id with error |
+| 6 | add same product twice + another product | 2 rows, quantities 2 + 1, cart total Rp 70.000, hidden total 70000 / weight 700; header badge 3 / Rp 70.000 |
+| 7 | live RajaOngkir flow (Mataram → Nusaniwe, 1000 g, JNE) | JTR Rp 165.000 / 30 hari, REG Rp 20.000 / 8 hari; no console errors |
+| backend | admin login | `/backend/beranda` shows "Selamat Datang, Mahasiswa BSI" |
+
+- `php artisan test`: **9 passed, 42 assertions** (1 framework PHP 8.4 deprecation notice).
+- Google OAuth could not be re-tested end-to-end in this run because `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are empty in the current `.env`; `/auth/redirect` still returns 302 to Google, and the email/password fallback is the working login path.
+- Current catalogue state (user-added products): 10 published products; page 1 = 6, page 2 = 4 (Wedang Jahe, Cireng, Pisang Goreng, Kue Mochi); blocked product 8 = Kerupuk Melinjo.
+
+Next in the module: **Minggu Ke-9 — Proses Pemesanan dan Checkout Produk** (the cart's "Pilih Pengiriman" form is wired to the shipping endpoints there). When implementing Week 9, use the V2 district IDs / `calculate/domestic-cost` endpoint above instead of the module's old city-based Starter calls. There is no Week 8.

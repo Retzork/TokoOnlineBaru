@@ -37,4 +37,10 @@ return [
         'redirect' => env('GOOGLE_REDIRECT_URL'),
     ],
 
+    'rajaongkir' => [
+        'api_key' => env('RAJAONGKIR_API_KEY'),
+        'base_url' => env('RAJAONGKIR_BASE_URL', 'https://rajaongkir.komerce.id/api'),
+        'timeout' => env('RAJAONGKIR_TIMEOUT', 15),
+    ],
+
 ];
