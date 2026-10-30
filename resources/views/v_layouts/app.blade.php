@@ -39,6 +39,21 @@
 	@php
 	$kategori = DB::table('kategori')->orderBy('nama_kategori', 'asc')->get();
 	$topProduk = App\Models\Produk::where('status', 1)->orderBy('updated_at', 'desc')->take(2)->get();
+
+	$cartQty = 0;
+	$cartTotal = 0;
+	if (Auth::check() && Auth::user()->role == 2) {
+		$cartCustomer = App\Models\Customer::where('user_id', Auth::id())->first();
+		if ($cartCustomer) {
+			$cartOrder = App\Models\Order::where('customer_id', $cartCustomer->id)
+				->where('status', 'pending')
+				->first();
+			if ($cartOrder) {
+				$cartQty = (int) $cartOrder->orderItems()->sum('quantity');
+				$cartTotal = (int) $cartOrder->total_harga;
+			}
+		}
+	}
 	@endphp
 	<!-- HEADER -->
 	<header>
@@ -107,7 +122,7 @@
 									</div>
 								</div>
 								<ul class="custom-menu">
-									<li><a href="#"><i class="fa fa-user-o"></i> Akun Saya</a></li>
+									<li><a href="{{ route('customer.akun', ['id' => Auth::user()->id]) }}"><i class="fa fa-user-o"></i> Akun Saya</a></li>
 									<li><a href="#"><i class="fa fa-check"></i> History</a></li>
 									<li>
 										<a href="#" onclick="event.preventDefault(); document.getElementById('keluar-app').submit();">
@@ -129,7 +144,8 @@
 									</div>
 								</div>
 								<ul class="custom-menu">
-									<li><a href="{{ route('auth.redirect') }}"><i class="fa fa-unlock-alt"></i> Login</a></li>
+									<li><a href="{{ route('customer.login') }}"><i class="fa fa-unlock-alt"></i> Login</a></li>
+									<li><a href="{{ route('auth.redirect') }}"><i class="fa fa-google"></i> Login Google</a></li>
 									<li><a href="#"><i class="fa fa-user-plus"></i> Daftar</a></li>
 								</ul>
 							@endif
@@ -141,18 +157,18 @@
 							<a class="dropdown-toggle" data-toggle="dropdown" aria-expanded="true">
 								<div class="header-btns-icon">
 									<i class="fa fa-shopping-cart"></i>
-									<span class="qty">0</span>
+									<span class="qty">{{ $cartQty }}</span>
 								</div>
 								<div class="header-btn-text">
 									<strong class="text-uppercase">Keranjang</strong>
-									<span class="cart-total">Rp. 0</span>
+									<span class="cart-total">Rp. {{ number_format($cartTotal, 0, ',', '.') }}</span>
 								</div>
 							</a>
 							<div class="custom-menu">
 								<div id="shopping-cart">
 									<div class="shopping-cart-list"></div>
 									<div class="shopping-cart-btns">
-										<button class="main-btn">Lihat Keranjang</button>
+										<a href="{{ route('order.cart') }}"><button class="main-btn">Lihat Keranjang</button></a>
 										<button class="primary-btn">Checkout <i class="fa fa-arrow-circle-right"></i></button>
 									</div>
 								</div>
@@ -308,6 +324,26 @@
 
 				<!-- MAIN -->
 				<div id="main" class="col-md-9">
+
+					{{-- Flash messages (login, akun, keranjang, middleware) --}}
+					@if(session()->has('success'))
+					<div class="alert alert-success alert-dismissible" role="alert">
+						<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+						<strong>{{ session('success') }}</strong>
+					</div>
+					@endif
+					@if(session()->has('msgError'))
+					<div class="alert alert-danger alert-dismissible" role="alert">
+						<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+						<strong>{{ session('msgError') }}</strong>
+					</div>
+					@endif
+					@if(session()->has('error'))
+					<div class="alert alert-danger alert-dismissible" role="alert">
+						<button type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+						<strong>{{ session('error') }}</strong>
+					</div>
+					@endif
 
 					<!-- @yieldAwal -->
 					@yield('content')
