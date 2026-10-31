@@ -47,6 +47,8 @@ Route::post('/logout', [CustomerController::class, 'logout'])->name('logout');
 // Login customer dengan email & password (alternatif selama OAuth Google belum siap)
 Route::get('/customer/login', [CustomerController::class, 'loginForm'])->name('customer.login');
 Route::post('/customer/login', [CustomerController::class, 'loginProses'])->name('customer.login.proses');
+Route::get('/customer/register', [CustomerController::class, 'registerForm'])->name('customer.register');
+Route::post('/customer/register', [CustomerController::class, 'registerProses'])->name('customer.register.proses');
 
 Route::get('backend/beranda', [BerandaController::class, 'berandaBackend'])->name('backend.beranda')->middleware('auth'); 
  
@@ -96,8 +98,20 @@ Route::middleware('is.customer')->group(function () {
     Route::put('/customer/updateakun/{id}', [CustomerController::class, 'updateAkun'])
         ->name('customer.updateakun');
 
-    // Route untuk menambahkan produk ke keranjang
-    Route::post('add-to-cart/{id}', [OrderController::class, 'addToCart'])
-        ->name('order.addToCart');
+    // Route keranjang belanja
+    Route::post('add-to-cart/{id}', [OrderController::class, 'addToCart'])->name('order.addToCart');
     Route::get('cart', [OrderController::class, 'viewCart'])->name('order.cart');
+    Route::post('cart/update/{id}', [OrderController::class, 'updateCart'])->name('order.updateCart');
+    Route::post('remove/{id}', [OrderController::class, 'removeFromCart'])->name('order.remove');
+
+    // Ongkir
+    Route::post('select-shipping', [OrderController::class, 'selectShipping'])->name('order.selectShipping');
+    Route::get('provinces', [OrderController::class, 'getProvinces']);
+    Route::get('cities', [OrderController::class, 'getCities']);
+    Route::post('cost', [OrderController::class, 'getCost']);
+    Route::post('updateongkir', [OrderController::class, 'updateongkir'])->name('order.updateongkir');
+
+    Route::get('selectpayment', [OrderController::class, 'selectpayment'])->name('order.selectpayment');
+    Route::post('checkout', [OrderController::class, 'checkoutProses'])->name('order.checkoutProses');
+    Route::get('history', [OrderController::class, 'history'])->name('order.history');
 });
