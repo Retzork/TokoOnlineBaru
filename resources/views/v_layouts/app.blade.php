@@ -146,7 +146,7 @@
 								<ul class="custom-menu">
 									<li><a href="{{ route('customer.login') }}"><i class="fa fa-unlock-alt"></i> Login</a></li>
 									<li><a href="{{ route('auth.redirect') }}"><i class="fa fa-google"></i> Login Google</a></li>
-									<li><a href="#"><i class="fa fa-user-plus"></i> Daftar</a></li>
+									<li><a href="{{ route('customer.register') }}"><i class="fa fa-user-plus"></i> Daftar</a></li>
 								</ul>
 							@endif
 						</li>
