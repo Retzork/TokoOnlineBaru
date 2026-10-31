@@ -167,6 +167,54 @@ class CustomerController extends Controller
     }
 
     /**
+     * Form pendaftaran customer.
+     */
+    public function registerForm()
+    {
+        return view('v_customer.register', [
+            'judul' => 'Daftar Akun',
+        ]);
+    }
+
+    /**
+     * Proses pendaftaran customer baru secara manual.
+     */
+    public function registerProses(Request $request)
+    {
+        $validatedData = $request->validate([
+            'nama' => 'required|max:255',
+            'email' => 'required|email|unique:user',
+            'password' => 'required|min:6|confirmed',
+        ], [
+            'email.unique' => 'Email ini sudah terdaftar.',
+            'password.confirmed' => 'Konfirmasi password tidak cocok.',
+            'password.min' => 'Password minimal 6 karakter.'
+        ]);
+
+        // 1. Buat User
+        $user = User::create([
+            'nama' => $validatedData['nama'],
+            'email' => $validatedData['email'],
+            'password' => Hash::make($validatedData['password']),
+            'hp' => '', // Menambahkan nilai kosong untuk kolom hp
+            'role' => '2', // Customer
+            'status' => 1, // Aktif
+        ]);
+
+        // 2. Buat Customer terkait
+        Customer::create([
+            'user_id' => $user->id,
+            'google_id' => null,
+            'google_token' => null,
+        ]);
+
+        // 3. Login otomatis setelah daftar
+        Auth::login($user);
+
+        return redirect()->route('beranda')->with('success', 'Pendaftaran berhasil! Selamat datang, ' . $user->nama);
+    }
+
+    /**
      * Form login customer dengan email & password.
      * Dipakai sebagai alternatif selama OAuth Google belum dikonfigurasi.
      */
@@ -189,7 +237,7 @@ class CustomerController extends Controller
             return back()->with('msgError', 'Email atau password salah')->withInput();
         }
 
-        $user = Auth::user();
+    $user = Auth::user();
 
         if ($user->role != 2) {
             Auth::logout();
