@@ -130,6 +130,27 @@
 
                             <li class="sidebar-item">
                                 <a class="sidebar-link has-arrow waves-effect waves-dark" href="javascript:void(0)" aria-expanded="false">
+                                    <i class="fa-solid fa-truck-fast" style="font-size: 20px;"></i>
+                                    <span class="hide-menu">Pesanan</span>
+                                </a>
+                                <ul aria-expanded="false" class="collapse first-level">
+                                    <li class="sidebar-item">
+                                        <a href="{{ route('pesanan.proses') }}" class="sidebar-link">
+                                            <i class="fa-solid fa-spinner" style="font-size: 20px;"></i>
+                                            <span class="hide-menu">Pesanan Proses</span>
+                                        </a>
+                                    </li>
+                                    <li class="sidebar-item">
+                                        <a href="{{ route('pesanan.selesai') }}" class="sidebar-link">
+                                            <i class="fa-solid fa-circle-check" style="font-size: 20px;"></i>
+                                            <span class="hide-menu">Pesanan Selesai</span>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </li>
+
+                            <li class="sidebar-item">
+                                <a class="sidebar-link has-arrow waves-effect waves-dark" href="javascript:void(0)" aria-expanded="false">
                                     <i class="mdi mdi-receipt"></i>
                                     <span class="hide-menu">Laporan</span>
                                 </a>
@@ -144,6 +165,18 @@
                                         <a href="{{ route('backend.laporan.formproduk') }}" class="sidebar-link">
                                             <i class="fa-solid fa-tag" style="font-size: 20px;"></i>
                                             <span class="hide-menu">Produk</span>
+                                        </a>
+                                    </li>
+                                    <li class="sidebar-item">
+                                        <a href="{{ route('backend.laporan.formpesananproses') }}" class="sidebar-link">
+                                            <i class="fa-solid fa-spinner" style="font-size: 20px;"></i>
+                                            <span class="hide-menu">Pesanan Proses</span>
+                                        </a>
+                                    </li>
+                                    <li class="sidebar-item">
+                                        <a href="{{ route('backend.laporan.formpesananselesai') }}" class="sidebar-link">
+                                            <i class="fa-solid fa-circle-check" style="font-size: 20px;"></i>
+                                            <span class="hide-menu">Pesanan Selesai</span>
                                         </a>
                                     </li>
                                 </ul>
@@ -225,6 +258,9 @@
     <script>
         $('#zero_config').DataTable();
     </script>
+
+    <!-- Script tambahan per halaman (mis. grafik pesanan) -->
+    @stack('scripts')
 
 <head>
     <!-- Include SweetAlert2 CSS and JS from Local Files -->

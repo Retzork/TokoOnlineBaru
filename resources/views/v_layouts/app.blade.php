@@ -123,7 +123,7 @@
 								</div>
 								<ul class="custom-menu">
 									<li><a href="{{ route('customer.akun', ['id' => Auth::user()->id]) }}"><i class="fa fa-user-o"></i> Akun Saya</a></li>
-									<li><a href="#"><i class="fa fa-check"></i> History</a></li>
+									<li><a href="{{ (int) Auth::user()->role === 2 ? route('order.history') : '#' }}"><i class="fa fa-check"></i> History</a></li>
 									<li>
 										<a href="#" onclick="event.preventDefault(); document.getElementById('keluar-app').submit();">
 											<i class="fa fa-power-off"></i> Keluar

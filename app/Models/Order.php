@@ -22,7 +22,12 @@ class Order extends Model
         'estimasi_ongkir',
         'total_berat',
         'alamat',
-        'pos'
+        'pos',
+        'tanggal'
+    ];
+
+    protected $casts = [
+        'tanggal' => 'datetime',
     ];
 
     public function orderItems()

@@ -247,6 +247,217 @@ class OrderController extends Controller
         return view('v_order.history', compact('orders'));
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Minggu 10 - Manajemen Pemesanan (backend)
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Daftar pesanan yang masih diproses (proses / Paid / Kirim).
+     */
+    public function statusProses()
+    {
+        $order = Order::with(['customer.user', 'orderItems.produk'])
+            ->whereIn('status', ['proses', 'Paid', 'Kirim'])
+            ->orderBy('id', 'desc')
+            ->get();
+
+        return view('backend.v_pesanan.proses', [
+            'judul' => 'Pesanan',
+            'subJudul' => 'Pesanan Proses',
+            'index' => $order,
+        ]);
+    }
+
+    /**
+     * Daftar pesanan yang sudah selesai.
+     */
+    public function statusSelesai()
+    {
+        $order = Order::with(['customer.user', 'orderItems.produk'])
+            ->where('status', 'Selesai')
+            ->orderBy('id', 'desc')
+            ->get();
+
+        return view('backend.v_pesanan.selesai', [
+            'judul' => 'Pesanan',
+            'subJudul' => 'Pesanan Selesai',
+            'index' => $order,
+        ]);
+    }
+
+    /**
+     * Detail satu pesanan beserta form perubahan status.
+     */
+    public function statusDetail($id)
+    {
+        $order = Order::with(['customer.user', 'orderItems.produk'])->findOrFail($id);
+
+        return view('backend.v_pesanan.detail', [
+            'judul' => 'Pesanan',
+            'subJudul' => 'Detail Pesanan #' . $order->id,
+            'order' => $order,
+        ]);
+    }
+
+    /**
+     * Menyimpan perubahan status / no resi / alamat / kode pos pesanan.
+     */
+    public function statusUpdate(Request $request, string $id)
+    {
+        $order = Order::findOrFail($id);
+
+        $rules = [
+            'alamat' => 'required',
+        ];
+
+        if ($request->status != $order->status) {
+            $rules['status'] = 'required|in:proses,Paid,Kirim,Selesai';
+        }
+        if ($request->noresi != $order->noresi) {
+            $rules['noresi'] = 'required';
+        }
+        if ($request->pos != $order->pos) {
+            $rules['pos'] = 'required';
+        }
+
+        $messages = [
+            'alamat.required' => 'Alamat pengiriman wajib diisi.',
+            'status.required' => 'Status pesanan wajib dipilih.',
+            'status.in' => 'Status pesanan tidak dikenali.',
+            'noresi.required' => 'Nomor resi wajib diisi.',
+            'pos.required' => 'Kode pos wajib diisi.',
+        ];
+
+        $validatedData = $request->validate($rules, $messages);
+        Order::where('id', $id)->update($validatedData);
+
+        return redirect()->route('pesanan.proses')
+            ->with('success', 'Data pesanan berhasil diperbaharui');
+    }
+
+    /**
+     * Form laporan pesanan proses.
+     */
+    public function formOrderProses()
+    {
+        return view('backend.v_pesanan.formproses', [
+            'judul' => 'Laporan',
+            'subJudul' => 'Laporan Pesanan Proses',
+        ]);
+    }
+
+    /**
+     * Cetak laporan pesanan proses per rentang tanggal.
+     */
+    public function cetakOrderProses(Request $request)
+    {
+        $request->validate([
+            'tanggal_awal' => 'required|date',
+            'tanggal_akhir' => 'required|date|after_or_equal:tanggal_awal',
+        ], [
+            'tanggal_awal.required' => 'Tanggal Awal harus diisi.',
+            'tanggal_akhir.required' => 'Tanggal Akhir harus diisi.',
+            'tanggal_akhir.after_or_equal' => 'Tanggal Akhir harus lebih besar atau sama dengan Tanggal Awal.',
+        ]);
+
+        $tanggalAwal = $request->input('tanggal_awal');
+        $tanggalAkhir = $request->input('tanggal_akhir');
+
+        $order = Order::with(['customer.user', 'orderItems.produk'])
+            ->whereIn('status', ['proses', 'Paid', 'Kirim'])
+            ->whereBetween('created_at', [$tanggalAwal . ' 00:00:00', $tanggalAkhir . ' 23:59:59'])
+            ->orderBy('id', 'desc')
+            ->get();
+
+        return view('backend.v_pesanan.cetakproses', [
+            'judul' => 'Laporan Pesanan Proses',
+            'subJudul' => 'Laporan Pesanan Proses',
+            'tanggalAwal' => $tanggalAwal,
+            'tanggalAkhir' => $tanggalAkhir,
+            'cetak' => $order,
+        ]);
+    }
+
+    /**
+     * Form laporan pesanan selesai.
+     */
+    public function formOrderSelesai()
+    {
+        return view('backend.v_pesanan.formselesai', [
+            'judul' => 'Laporan',
+            'subJudul' => 'Laporan Pesanan Selesai',
+        ]);
+    }
+
+    /**
+     * Cetak laporan pesanan selesai + total pendapatan.
+     */
+    public function cetakOrderSelesai(Request $request)
+    {
+        $request->validate([
+            'tanggal_awal' => 'required|date',
+            'tanggal_akhir' => 'required|date|after_or_equal:tanggal_awal',
+        ], [
+            'tanggal_awal.required' => 'Tanggal Awal harus diisi.',
+            'tanggal_akhir.required' => 'Tanggal Akhir harus diisi.',
+            'tanggal_akhir.after_or_equal' => 'Tanggal Akhir harus lebih besar atau sama dengan Tanggal Awal.',
+        ]);
+
+        $tanggalAwal = $request->input('tanggal_awal');
+        $tanggalAkhir = $request->input('tanggal_akhir');
+
+        $order = Order::with(['customer.user', 'orderItems.produk'])
+            ->where('status', 'Selesai')
+            ->whereBetween('created_at', [$tanggalAwal . ' 00:00:00', $tanggalAkhir . ' 23:59:59'])
+            ->orderBy('id', 'desc')
+            ->get();
+
+        $totalPendapatan = $order->sum(function ($row) {
+            return $row->total_harga + $row->biaya_ongkir;
+        });
+
+        return view('backend.v_pesanan.cetakselesai', [
+            'judul' => 'Laporan Pesanan Selesai',
+            'subJudul' => 'Laporan Pesanan Selesai',
+            'tanggalAwal' => $tanggalAwal,
+            'tanggalAkhir' => $tanggalAkhir,
+            'cetak' => $order,
+            'totalPendapatan' => $totalPendapatan,
+        ]);
+    }
+
+    /**
+     * Invoice pesanan dari sisi backend (admin).
+     */
+    public function invoiceBackend($id)
+    {
+        $order = Order::with(['customer.user', 'orderItems.produk'])->findOrFail($id);
+
+        return view('backend.v_pesanan.invoice', [
+            'judul' => 'Invoice Pesanan #' . $order->id,
+            'order' => $order,
+        ]);
+    }
+
+    /**
+     * Invoice pesanan dari sisi customer (hanya pesanan miliknya sendiri).
+     */
+    public function invoiceFrontend($id)
+    {
+        $customer = Customer::where('user_id', Auth::id())->first();
+        $order = Order::with(['customer.user', 'orderItems.produk'])
+            ->where('id', $id)
+            ->where('customer_id', $customer->id ?? 0)
+            ->firstOrFail();
+
+        return view('v_order.invoice', [
+            'judul' => 'Invoice Pesanan #' . $order->id,
+            'order' => $order,
+        ]);
+    }
+
     /**
      * HTTP client RajaOngkir; menggunakan config() dan bypass SSL jika diatur.
      */

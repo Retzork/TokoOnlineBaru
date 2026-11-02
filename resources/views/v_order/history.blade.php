@@ -21,12 +21,12 @@
                 @forelse($orders as $row)
                 <tr>
                     <td>{{ $row->id }}</td>
-                    <td>{{ $row->tanggal }}</td>
+                    <td>{{ $row->tanggal ? $row->tanggal->format('d/m/Y H:i') : $row->created_at->format('d/m/Y H:i') }}</td>
                     <td>Rp. {{ number_format($row->total_harga + $row->biaya_ongkir, 0, ',', '.') }}</td>
                     <td><span class="label label-warning">{{ ucfirst($row->status) }}</span></td>
                     <td>
-                        <a href="#" class="primary-btn btn-sm" style="padding: 5px 10px;">LIHAT DETAIL</a>
-                        <a href="#" class="primary-btn btn-sm" style="padding: 5px 10px; background-color: #f8694a;">INVOICE</a>
+                        <a href="{{ route('order.invoice', $row->id) }}" class="primary-btn btn-sm" style="padding: 5px 10px;">LIHAT DETAIL</a>
+                        <a href="{{ route('order.invoice', $row->id) }}" class="primary-btn btn-sm" style="padding: 5px 10px; background-color: #f8694a;">INVOICE</a>
                     </td>
                 </tr>
                 @empty
