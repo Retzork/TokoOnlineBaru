@@ -87,10 +87,10 @@ Completed: <date>
 | 5 | Route Groups and Middleware (customer account page) | :white_check_mark: Done |
 | 6 | Shopping Cart | :white_check_mark: Done |
 | 7 | RajaOngkir Shipping Cost API (standalone test page) | :white_check_mark: Done |
-| 9 | Ordering and Checkout Flow | Not started |
-| 10 | Order Management (backend) and Invoices | Not started |
-| 11 | Order Chart (admin dashboard) | Not started |
-| 12 | Payment Gateway with Midtrans (Snap) | Not started |
+| 9 | Ordering and Checkout Flow | :white_check_mark: Done (team PR, not documented here) |
+| 10 | Order Management (backend) and Invoices | :white_check_mark: Done |
+| 11 | Order Chart (admin dashboard) | :white_check_mark: Done |
+| 12 | Payment Gateway with Midtrans (Snap) | :white_check_mark: Done |
 | 13–15 | Group Project Presentation (no code) | — |
 
 Detailed descriptions for unfinished weeks stay in `../project.md` — this README only documents finished work.
@@ -464,6 +464,210 @@ Completed: 2026-10-29
 - **Live test with the configured Komerce/RajaOngkir key (2026-10-29):** `/provinces` → 34 provinces; `/cities?province_id=1` → 9 cities; `/districts?city_id=1` → 6 districts; `POST /cost` from MATARAM (district 1) to NUSANIWE (district 117), 1000 g, JNE → JTR `Rp 165.000` (30 hari) and REG `Rp 20.000` (8 hari). The full page flow (province → city → district for both ends → Cek Ongkir) was run in Edge/Playwright; results rendered and the browser console had no errors.
 - The module's old host `https://api.rajaongkir.com/starter/province` times out, which is why the implementation targets V2.
 
+### Week 10 — Order Management (backend) and Invoices :white_check_mark:
+
+Completed: 2026-10-27
+
+**Goal:** the admin can process incoming orders (status, tracking number, shipping address), print an invoice, and print order reports per date range; the customer can open an invoice for their own order.
+
+**Status flow used in this project**
+
+The module uses `Paid → Kirim → Selesai`. This project's checkout (team PR) already sets the order to `proses` when the payment step is submitted, so the backend accepts both vocabularies:
+
+```text
+pending (keranjang) → proses → Kirim → Selesai
+                        ↑
+         also accepted: Paid, Kirim   (module vocabulary)
+```
+
+**What was done**
+
+- `app/Http/Controllers/OrderController.php` — 10 new backend/customer methods:
+  - `statusProses()` — orders with status `proses`, `Paid` or `Kirim`
+  - `statusSelesai()` — orders with status `Selesai`
+  - `statusDetail($id)` — order + items + customer, source of the edit form
+  - `statusUpdate($id)` — validated update of `status`, `noresi`, `alamat`, `pos`
+  - `formOrderProses()` / `cetakOrderProses()` and `formOrderSelesai()` / `cetakOrderSelesai()` — date-range forms and print views; the Selesai report also sums the revenue
+  - `invoiceBackend($id)` — printable invoice for the admin
+  - `invoiceFrontend($id)` — invoice for the logged-in customer, scoped with `where('customer_id', ...)->firstOrFail()` so another customer's order returns 404
+- `routes/web.php` — new `auth` group: `pesanan.proses`, `pesanan.selesai`, `pesanan.detail`, `pesanan.update` (PUT), `pesanan.invoice`, plus `backend.laporan.form/cetakpesananproses|form/cetakpesananselesai`; inside the `is.customer` group: `order.invoice`.
+- `resources/views/backend/v_pesanan/` — 8 new views: `proses`, `selesai` (DataTable lists), `detail` (order summary + items + edit form), `proses`/`selesai` report forms, `cetakproses`/`cetakselesai` (print tables), `invoice` (standalone printable page).
+- `resources/views/v_order/invoice.blade.php` — customer invoice: order summary, items, subtotal/shipping/total, print button; the storefront header/footer are hidden `@media print`.
+- `resources/views/backend/v_layouts/app.blade.php` — sidebar group **Pesanan** (Pesanan Proses / Pesanan Selesai) and two new entries under **Laporan**.
+- `resources/views/v_order/history.blade.php` — the dead `#` links now open `route('order.invoice', $id)`; the date column uses the `tanggal` cast.
+- `app/Models/Order.php` — `tanggal` added to `$fillable` and `$casts = ['tanggal' => 'datetime']`.
+
+**Known issues from the module fixed**
+
+- The module validates every field in one `validate()` call, so saving the form without touching `noresi` / `pos` fails when they are still empty → only the fields that actually changed are validated; the rest are re-validated only when edited.
+- `$row->customer->user->nama` assumes both rows always exist → all printed views and lists use `optional()` chains and fall back to `-`.
+- `total_harga` does **not** include shipping in this project, so every list/invoice/report shows `subtotal + biaya_ongkir`; the Selesai report sums the same way so the revenue figure matches the rows.
+- `order.tanggal` was a raw string, so `->format()` crashed with *Call to a member function format() on string* → added the `datetime` cast and a `tanggal ?? created_at` fallback.
+- The module's customer invoice had no ownership check → `invoiceFrontend` filters by `customer_id`.
+
+**How to check**
+
+1. Login to the backend, then **Pesanan → Pesanan Proses** (`/backend/pesanan/proses`) → a table with the orders whose status is `proses`/`Paid`/`Kirim` (empty while every order is still a cart).
+2. Click **Detail** on a row → the order summary, the product table with subtotal, shipping cost and total, plus the edit form.
+3. Change **Status** to `Kirim`, fill **Nomor Resi** and **Kode Pos**, keep the address, then **Simpan Perubahan** → SweetAlert “Data pesanan berhasil diperbaharui” and the order disappears from *Proses*; filter `/backend/pesanan/selesai` after choosing `Selesai` to see it there.
+4. Click **Cetak** on a row → the printable invoice opens in a new tab (print dialog appears automatically from the report pages, the invoice page has a manual print button).
+5. **Laporan → Pesanan Proses** → pick `Tanggal Awal` / `Tanggal Akhir`, click **Cetak** → a printed table for that range. Choosing an end date before the start date shows the validation message instead of submitting.
+6. Login as a customer, open `/history`, click **INVOICE** on an order → `/invoice/{id}` renders that customer's own invoice; `/invoice/{id}` of another customer returns 404.
+7. The storefront dropdown **History** now links to `/history` for customers only (role 2).
+
+**Files to inspect**
+
+| File | What changed |
+| --- | --- |
+| `app/Http/Controllers/OrderController.php` | 10 order-management/invoice methods (Minggu 10 block) |
+| `app/Models/Order.php` | `tanggal` in `$fillable` + `datetime` cast |
+| `routes/web.php` | backend `pesanan.*` + laporan routes, customer `order.invoice` |
+| `resources/views/backend/v_pesanan/*.blade.php` | 8 new views (lists, detail, report forms, prints, invoice) |
+| `resources/views/v_order/invoice.blade.php` | customer invoice (new file) |
+| `resources/views/v_order/history.blade.php` | invoice/detail links wired |
+| `resources/views/backend/v_layouts/app.blade.php` | Pesanan + Laporan sidebar entries, `@stack('scripts')` |
+| `resources/views/v_layouts/app.blade.php` | account dropdown “History” link |
+
+**Verified**
+
+- `php -l` clean on the controller, model and routes; `php artisan view:cache` compiles every Blade file.
+- `php artisan route:list --path=backend/pesanan` → 5 routes; `--path=backend/laporan` → the 4 report routes.
+- HTTP on the local server (customer session): `/backend/pesanan/proses` 200, `/backend/pesanan/selesai` 200, `/backend/pesanan/detail/1` 200, `/backend/pesanan/invoice/1` 200, `/backend/laporan/formpesananproses` 200, `/backend/laporan/formpesananselesai` 200, `POST` on both `cetak*` routes 200.
+- Ownership check: `/invoice/1` → 404 for the customer that owns order 2, `/invoice/2` → 200.
+- `statusUpdate` exercised inside a rolled-back transaction: status `Kirim` + resi stored, redirect to `pesanan.proses`, then the data returned to `pending` (no change left in the DB).
+- All 10 new/edited views rendered through the controller (49 KB dashboard, 25 KB detail, 18 KB customer invoice) with no Blade error.
+
+### Week 11 - Order Chart (admin dashboard) :white_check_mark:
+
+Completed: 2026-10-27
+
+**Goal:** show order statistics plus a monthly order chart on the backend dashboard.
+
+**What was done**
+
+- `app/Http/Controllers/BerandaController::berandaBackend()` now returns:
+  - `totalProduk`, `totalCustomer`, `pesananProses` (`proses`/`Paid`/`Kirim`), `pesananSelesai`, `totalPendapatan` (`total_harga + biaya_ongkir` of `Selesai` orders)
+  - `grafikPesanan` — 12 entries `["Jan", n] … ["Des", n]` built from `SELECT MONTH(created_at), COUNT(*) … GROUP BY bulan` for the current year, excluding `pending` (cart) rows
+- `resources/views/backend/v_beranda/index.blade.php` — four stat cards + a flot line/area chart (`#grafik-pesanan`) with a hover tooltip showing `Bulan: jumlah`.
+- The chart uses the **local** Matrix libraries (`backend/libs/chart/jquery.flot.min.js`, `jquery.flot.resize.min.js`, `backend/libs/flot/jquery.flot.categories.js`) — no CDN request.
+- `resources/views/backend/v_layouts/app.blade.php` — added `@stack('scripts')` **after** the jQuery/DataTables bundle (jQuery loads at the bottom of the layout, so page scripts could not run before this).
+
+**Known issues from the module fixed**
+
+- The module's dashboard only ships the template's demo `dashboard.js` (a sin/cos curve) — replaced with the real order recap, so the chart is never empty-by-design and needs no seeded demo data.
+- `Auth::user()->role === 1` in the old welcome card never matched: `role` is a MySQL `ENUM('0','1','2')` returned as a **string** → compared with `(int)` casts, so “Super Admin” now shows for role 1.
+- Grouping by `MONTH(created_at)` returns only the months that have rows; the view receives a full 12-month series (missing months filled with `0`) so the x-axis is stable.
+
+**How to check**
+
+1. Login to the backend and open `/backend/beranda` → four cards (Total Produk, Total Customer, Pesanan Proses, Pesanan Selesai) and the chart card “Grafik Pesanan Tahun <year>”.
+2. Hover a point → tooltip “Jumlah Pesanan <Bulan>: <n>”. All zeros is correct while only cart (`pending`) orders exist.
+3. Run the checkout flow for a customer (or move an order to `Kirim`/`Selesai` from **Pesanan → Detail**), reload the dashboard → the current month bar/point increases and the “Pesanan Proses/Selesai” cards follow.
+4. Mark an order `Selesai` with a shipping cost → “Total Pendapatan (Selesai)” adds `total_harga + biaya_ongkir`.
+5. Check the browser console → no 404 for the flot files and no JS error; `view-source` shows the flot `<script>` tags right after the DataTables bundle.
+
+**Files to inspect**
+
+| File | What changed |
+| --- | --- |
+| `app/Http/Controllers/BerandaController.php` | dashboard statistics + 12-month order recap |
+| `resources/views/backend/v_beranda/index.blade.php` | stat cards, chart container, flot script (`@push('scripts')`) |
+| `resources/views/backend/v_layouts/app.blade.php` | `@stack('scripts')` after the jQuery bundle |
+
+**Verified**
+
+- `php -l` clean on `BerandaController`; dashboard renders (49 KB) with `#grafik-pesanan` present, the three flot includes and `var dataPesanan = [["Jan",0],["Feb",0], … ["Dec",0]]` (all zero while the two local orders are still `pending`).
+- `/backend/beranda` → 200 on the running server.
+
+
+### Week 12 — Payment Gateway with Midtrans (Snap) :white_check_mark:
+
+Completed: 2026-11-05
+
+**Goal:** replace the direct checkout button with a real Midtrans Snap payment flow and update the order status from the Midtrans notification (webhook).
+
+**What was done**
+
+- `composer require midtrans/midtrans-php` (`^2.6`) — official Midtrans PHP SDK.
+- `config/midtrans.php` — `server_key`, `client_key`, `is_production`, `is_sanitized`, `is_3ds`, and the correct Sandbox/Production Snap.js URL.
+- `.env.example` — new `MIDTRANS_*` keys (Sandbox credentials from the Midtrans dashboard).
+- `database/migrations/2026_11_05_000000_add_midtrans_fields_to_order_table.php` — adds `midtrans_order_id`, `snap_token`, `midtrans_redirect_url`, `payment_type`, `transaction_id`, `transaction_status`, `fraud_status`, `paid_at` to `order`.
+- `app/Models/Order.php` — Midtrans fields in `$fillable`, `paid_at` datetime cast, and a `grand_total` accessor (`total_harga + biaya_ongkir`).
+- `app/Http/Controllers/OrderController.php`:
+  - `selectPayment()` builds a unique `order_id` (`<order-id>-<timestamp>-<random>`), sends product + shipping `item_details`, customer details, and a finish callback, then stores the Snap token.
+  - `callback()` verifies the SHA-512 signature, validates the amount, marks the order `Paid` only for `capture`/`settlement` (fraud `accept`), decrements stock **once**, and stores payment metadata.
+  - `complete()` redirects to order history with a success message.
+  - `history()` now includes a pending order that already has a Midtrans transaction so the customer can retry payment.
+- `routes/api.php` — `POST /api/midtrans/callback` (`midtrans.callback`), no login, protected by the signature check.
+- `routes/web.php` — `GET /complete` (`order.complete`); checkout shipping endpoints moved to `/customer/provinces`, `/customer/cities`, `/customer/cost` so they no longer overwrite the public Week 7 routes.
+- `resources/views/v_order/select_payment.blade.php` — order recap + Snap.js button with `onSuccess`, `onPending`, `onError`, `onClose` handlers.
+- `resources/views/v_order/history.blade.php` — status badges and a **BAYAR SEKARANG** retry button for pending payments.
+- Backend order detail + customer/backend invoices show payment method, Midtrans status and paid date.
+- `tests/Feature/MidtransCallbackTest.php` — settlement, duplicate notification, invalid signature and amount mismatch.
+
+**Known issues from the module fixed**
+
+- The module's `callback()` calls `Order::find($request->order_id)`, but the Snap order id is `"<id>-<timestamp>"` — it would never find the order. We map by `midtrans_order_id` and fall back to the numeric prefix.
+- The module leaves `dd($request->all())` in the callback, which would return a debug dump to Midtrans. Removed.
+- The module marks the order `Paid` for **any** transaction status as long as the signature matches. Now only `capture`/`settlement` with `fraud_status = accept` marks it paid; `pending`, `deny`, `cancel`, `expire` leave the order payable.
+- The module has no `config/midtrans.php`, no Snap.js `<script>` and no `order.complete` route. All are added.
+- The module uses `Auth::user()->customer->id` although `User` has no `customer` relation; the controller now looks up `Customer::where('user_id', Auth::id())`.
+- Stock is reduced in the callback, not before payment, and duplicate notifications cannot reduce it twice.
+- While verifying, the customer checkout routes were found to overwrite the public `/provinces`, `/cities`, `/cost` routes (the Week 7 test page returned 500). They are now namespaced under `/customer/*`.
+
+**How to check**
+
+1. Create a Midtrans Sandbox account, open **Settings → Access Keys**, copy the **Server Key** and **Client Key** into `.env`:
+
+   ```
+   MIDTRANS_SERVER_KEY=SB-Mid-server-...
+   MIDTRANS_CLIENT_KEY=SB-Mid-client-...
+   MIDTRANS_IS_PRODUCTION=false
+   MIDTRANS_IS_SANITIZED=true
+   MIDTRANS_IS_3DS=true
+   ```
+
+2. Run `php artisan migrate` (adds the Midtrans columns) and `php artisan config:clear`.
+3. Login as a customer, add products, choose shipping, then click **BAYAR SEKARANG** on `/selectpayment` → the Midtrans Snap popup opens with QRIS, bank transfer, e-wallet, card, etc.
+4. Pay with a Sandbox method (e.g. QRIS simulator or test card `4811 1111 1111 1114`, expiry any future date, CVV `123`, OTP `112233`).
+5. For the webhook, expose the app publicly (e.g. `ngrok http 8000`), set `APP_URL=https://<public-url>` in `.env`, and set **Settings → Configuration → Payment Notification URL** to `https://<public-url>/api/midtrans/callback`.
+6. After `settlement`, `order.status` becomes `Paid`, `payment_type`/`transaction_id`/`paid_at` are filled, stock decreases once, the customer history shows **Dibayar**, and the order appears in **Backend → Pesanan → Pesanan Proses**.
+7. Without a public URL you can still test the endpoint locally:
+
+   ```bash
+   curl -X POST http://127.0.0.1:8000/api/midtrans/callback \
+     -H "Content-Type: application/json" \
+     -d '{"order_id":"1-...","status_code":"200","gross_amount":"65000","transaction_status":"settlement","fraud_status":"accept","signature_key":"<sha512(order_id+status_code+gross_amount+server_key)>"}'
+   ```
+
+   Invalid signatures return `403`; a mismatched amount returns `422`; a duplicate settlement returns `200` without reducing stock again.
+
+**Files to inspect**
+
+| File | What changed |
+| --- | --- |
+| `composer.json`, `composer.lock` | `midtrans/midtrans-php` dependency |
+| `config/midtrans.php` | new Midtrans/Snap configuration |
+| `.env.example` | `MIDTRANS_*` variables |
+| `database/migrations/2026_11_05_000000_add_midtrans_fields_to_order_table.php` | payment columns |
+| `app/Models/Order.php` | Midtrans fillable fields, `paid_at` cast, `grand_total` |
+| `app/Http/Controllers/OrderController.php` | Snap token, callback, complete, history, helpers |
+| `routes/api.php`, `routes/web.php` | callback + complete routes, customer ongkir endpoints |
+| `resources/views/v_order/select_payment.blade.php` | Snap payment page |
+| `resources/views/v_order/history.blade.php` | payment status + retry |
+| `resources/views/v_order/invoice.blade.php`, `resources/views/backend/v_pesanan/{detail,invoice}.blade.php` | payment info |
+| `resources/views/v_order/select_shipping.blade.php` | use `/customer/*` ongkir endpoints |
+| `tests/Feature/MidtransCallbackTest.php` | webhook tests |
+
+**Verified**
+
+- `php -l` clean on the controller, model, config, migration and routes.
+- `php artisan route:list` shows `POST api/midtrans/callback` and `GET complete`.
+- `php artisan view:cache` compiles every Blade template.
+- `php artisan test`: **13 passed, 62 assertions** (only PHP 8.4 / missing-`.env` environment notices).
+- Callback tests cover: settlement → `Paid` + stock −1×qty; duplicate settlement → stock unchanged; bad signature → `403`; wrong amount → `422`; payment page without a server key shows a clear message.
+
+
 ## Local end-to-end run — Weeks 1–7 (2026-10-29)
 
 The project was run from a clean local state and all seven weeks were exercised in Edge/Playwright.
@@ -496,4 +700,4 @@ The project was run from a clean local state and all seven weeks were exercised 
 - Google OAuth could not be re-tested end-to-end in this run because `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are empty in the current `.env`; `/auth/redirect` still returns 302 to Google, and the email/password fallback is the working login path.
 - Current catalogue state (user-added products): 10 published products; page 1 = 6, page 2 = 4 (Wedang Jahe, Cireng, Pisang Goreng, Kue Mochi); blocked product 8 = Kerupuk Melinjo.
 
-Next in the module: **Minggu Ke-9 — Proses Pemesanan dan Checkout Produk** (the cart's "Pilih Pengiriman" form is wired to the shipping endpoints there). When implementing Week 9, use the V2 district IDs / `calculate/domestic-cost` endpoint above instead of the module's old city-based Starter calls. There is no Week 8.
+All code weeks (1-7 and 9-12) are complete. Week 12 needs Midtrans Sandbox credentials in `.env` before the Snap popup can be tested; the setup and callback testing steps are in the Week 12 section above. There is no Week 8.

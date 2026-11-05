@@ -19,14 +19,41 @@
             </thead>
             <tbody>
                 @forelse($orders as $row)
+                @php
+                $statusLabel = match ($row->status) {
+                    'pending' => 'Menunggu Pembayaran',
+                    'proses' => 'Diproses',
+                    'Paid' => 'Dibayar',
+                    'Kirim' => 'Dikirim',
+                    'Selesai' => 'Selesai',
+                    default => ucfirst($row->status),
+                };
+                $statusClass = match ($row->status) {
+                    'pending' => 'warning',
+                    'proses' => 'info',
+                    'Paid' => 'success',
+                    'Kirim' => 'primary',
+                    'Selesai' => 'success',
+                    default => 'default',
+                };
+                $tanggal = $row->tanggal ?? $row->paid_at ?? $row->created_at;
+                @endphp
                 <tr>
-                    <td>{{ $row->id }}</td>
-                    <td>{{ $row->tanggal }}</td>
-                    <td>Rp. {{ number_format($row->total_harga + $row->biaya_ongkir, 0, ',', '.') }}</td>
-                    <td><span class="label label-warning">{{ ucfirst($row->status) }}</span></td>
+                    <td>#{{ $row->id }}</td>
+                    <td>{{ $tanggal ? $tanggal->format('d/m/Y H:i') : '-' }}</td>
+                    <td>Rp. {{ number_format($row->grand_total, 0, ',', '.') }}</td>
                     <td>
-                        <a href="#" class="primary-btn btn-sm" style="padding: 5px 10px;">LIHAT DETAIL</a>
-                        <a href="#" class="primary-btn btn-sm" style="padding: 5px 10px; background-color: #f8694a;">INVOICE</a>
+                        <span class="label label-{{ $statusClass }}">{{ $statusLabel }}</span>
+                        @if ($row->status === 'pending' && $row->transaction_status)
+                        <br><small>{{ ucfirst($row->transaction_status) }}</small>
+                        @endif
+                    </td>
+                    <td>
+                        @if ($row->status === 'pending' && $row->midtrans_order_id)
+                        <a href="{{ route('order.selectpayment') }}" class="primary-btn btn-sm" style="padding: 5px 10px; background-color: #f8694a;">BAYAR SEKARANG</a>
+                        @endif
+                        <a href="{{ route('order.invoice', $row->id) }}" class="primary-btn btn-sm" style="padding: 5px 10px;">LIHAT DETAIL</a>
+                        <a href="{{ route('order.invoice', $row->id) }}" class="primary-btn btn-sm" style="padding: 5px 10px; background-color: #999;">INVOICE</a>
                     </td>
                 </tr>
                 @empty

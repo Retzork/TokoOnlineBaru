@@ -87,6 +87,24 @@ Route::post('backend/laporan/cetakproduk', [ProdukController::class, 'cetakProdu
     ->name('backend.laporan.cetakproduk')
     ->middleware('auth');
 
+// Manajemen pesanan + laporan pesanan (Minggu 10)
+Route::middleware('auth')->group(function () {
+    Route::get('backend/pesanan/proses', [OrderController::class, 'statusProses'])->name('pesanan.proses');
+    Route::get('backend/pesanan/selesai', [OrderController::class, 'statusSelesai'])->name('pesanan.selesai');
+    Route::get('backend/pesanan/detail/{id}', [OrderController::class, 'statusDetail'])->name('pesanan.detail');
+    Route::put('backend/pesanan/update/{id}', [OrderController::class, 'statusUpdate'])->name('pesanan.update');
+    Route::get('backend/pesanan/invoice/{id}', [OrderController::class, 'invoiceBackend'])->name('pesanan.invoice');
+
+    Route::get('backend/laporan/formpesananproses', [OrderController::class, 'formOrderProses'])
+        ->name('backend.laporan.formpesananproses');
+    Route::post('backend/laporan/cetakpesananproses', [OrderController::class, 'cetakOrderProses'])
+        ->name('backend.laporan.cetakpesananproses');
+    Route::get('backend/laporan/formpesananselesai', [OrderController::class, 'formOrderSelesai'])
+        ->name('backend.laporan.formpesananselesai');
+    Route::post('backend/laporan/cetakpesananselesai', [OrderController::class, 'cetakOrderSelesai'])
+        ->name('backend.laporan.cetakpesananselesai');
+});
+
 // Group route untuk customer
 Route::middleware('is.customer')->group(function () {
 
@@ -106,12 +124,17 @@ Route::middleware('is.customer')->group(function () {
 
     // Ongkir
     Route::post('select-shipping', [OrderController::class, 'selectShipping'])->name('order.selectShipping');
-    Route::get('provinces', [OrderController::class, 'getProvinces']);
-    Route::get('cities', [OrderController::class, 'getCities']);
-    Route::post('cost', [OrderController::class, 'getCost']);
+    // URL khusus checkout customer agar tidak menimpa route uji ongkir publik.
+    Route::get('customer/provinces', [OrderController::class, 'getProvinces'])->name('order.provinces');
+    Route::get('customer/cities', [OrderController::class, 'getCities'])->name('order.cities');
+    Route::post('customer/cost', [OrderController::class, 'getCost'])->name('order.cost');
     Route::post('updateongkir', [OrderController::class, 'updateongkir'])->name('order.updateongkir');
 
-    Route::get('selectpayment', [OrderController::class, 'selectpayment'])->name('order.selectpayment');
+    Route::get('selectpayment', [OrderController::class, 'selectPayment'])->name('order.selectpayment');
     Route::post('checkout', [OrderController::class, 'checkoutProses'])->name('order.checkoutProses');
+    Route::get('complete', [OrderController::class, 'complete'])->name('order.complete');
     Route::get('history', [OrderController::class, 'history'])->name('order.history');
+
+    // Invoice pesanan milik customer sendiri (Minggu 10)
+    Route::get('invoice/{id}', [OrderController::class, 'invoiceFrontend'])->name('order.invoice');
 });

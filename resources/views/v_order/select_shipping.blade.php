@@ -65,7 +65,7 @@
 <script>
 $(document).ready(function() {
     // Load Provinsi
-    $.get("{{ url('/provinces') }}", function(data) {
+    $.get("{{ route('order.provinces') }}", function(data) {
         let results = data.rajaongkir.results;
         results.forEach(function(item) {
             $('#province_id').append(`<option value="${item.province_id}">${item.province}</option>`);
@@ -77,7 +77,7 @@ $(document).ready(function() {
         let provinceId = $(this).val();
         $('#city_id').html('<option value="">-- Pilih Kota --</option>');
         if(provinceId) {
-            $.get("{{ url('/cities') }}?province_id=" + provinceId, function(data) {
+            $.get("{{ route('order.cities') }}?province_id=" + provinceId, function(data) {
                 let results = data.rajaongkir.results;
                 results.forEach(function(item) {
                     $('#city_id').append(`<option value="${item.city_id}">${item.city_name}</option>`);
@@ -100,7 +100,7 @@ $(document).ready(function() {
             return;
         }
 
-        $.post("{{ url('/cost') }}", {
+        $.post("{{ route('order.cost') }}", {
             _token: "{{ csrf_token() }}",
             origin: origin,
             destination: destination,
