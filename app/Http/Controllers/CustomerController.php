@@ -27,6 +27,13 @@ class CustomerController extends Controller
      */
     public function redirect()
     {
+        // Cegah error "Missing required parameter: client_id" di Google
+        // ketika kredensial OAuth belum diisi di .env.
+        if (blank(config('services.google.client_id')) || blank(config('services.google.client_secret'))) {
+            return redirect()->route('customer.login')
+                ->with('msgError', 'Login Google belum dikonfigurasi. Silakan masuk dengan email dan password.');
+        }
+
         /** @var \Laravel\Socialite\Two\AbstractProvider $provider */
         $provider = Socialite::driver('google');
         return $provider->with(['prompt' => 'select_account'])->redirect();
