@@ -13,7 +13,12 @@ use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Midtrans\Config;
+use Midtrans\Snap;
+use Throwable;
 
 class OrderController extends Controller
 {
@@ -208,40 +213,233 @@ class OrderController extends Controller
         );
     }
 
-    public function selectpayment()
+    /**
+     * Halaman pembayaran Midtrans Snap.
+     *
+     * Token Snap dibuat ulang setiap halaman dibuka supaya pelanggan yang
+     * membatalkan pembayaran bisa mencoba lagi tanpa membuat pesanan baru.
+     */
+    public function selectPayment()
     {
         $customer = Customer::where('user_id', Auth::id())->first();
-        $order = Order::where('customer_id', $customer->id)->where('status', 'pending')->first();
-
-        if (!$order) {
-            return redirect()->route('order.cart');
+        if (!$customer) {
+            return redirect()->route('auth.redirect')
+                ->with('msgError', 'Data customer tidak ditemukan, silakan login ulang');
         }
 
-        return view('v_order.select_payment', compact('order'));
+        $order = Order::with('orderItems.produk')
+            ->where('customer_id', $customer->id)
+            ->where('status', 'pending')
+            ->first();
+
+        if (!$order || $order->orderItems->isEmpty()) {
+            return redirect()->route('order.cart')->with('error', 'Keranjang belanja kosong.');
+        }
+
+        // Cegah pembayaran bila stok sudah habis sebelum transaksi dibuat.
+        foreach ($order->orderItems as $item) {
+            if (!$item->produk || $item->produk->stok < $item->quantity) {
+                return redirect()->route('order.cart')->with(
+                    'error',
+                    'Stok produk ' . (optional($item->produk)->nama_produk ?? '#' . $item->produk_id) . ' tidak mencukupi.'
+                );
+            }
+        }
+
+        $snapToken = null;
+        $paymentError = null;
+
+        if (blank(config('midtrans.server_key')) || blank(config('midtrans.client_key'))) {
+            $paymentError = 'MIDTRANS_SERVER_KEY dan MIDTRANS_CLIENT_KEY belum diatur. Isi kredensial Midtrans Sandbox di file .env terlebih dahulu.';
+        } else {
+            try {
+                $this->configureMidtrans();
+
+                $midtransOrderId = $this->makeMidtransOrderId($order);
+                $itemDetails = $this->midtransItemDetails($order);
+
+                $params = [
+                    'transaction_details' => [
+                        'order_id' => $midtransOrderId,
+                        'gross_amount' => $this->midtransGrossAmount($order),
+                    ],
+                    'item_details' => $itemDetails,
+                    'customer_details' => [
+                        'first_name' => optional($customer->user)->nama ?? 'Customer',
+                        'email' => optional($customer->user)->email ?? '',
+                        'phone' => optional($customer->user)->hp ?? '',
+                    ],
+                    'callbacks' => [
+                        'finish' => route('order.complete'),
+                    ],
+                ];
+
+                $snapToken = Snap::getSnapToken($params);
+
+                $order->update([
+                    'midtrans_order_id' => $midtransOrderId,
+                    'snap_token' => $snapToken,
+                ]);
+            } catch (Throwable $exception) {
+                Log::error('Gagal membuat Snap token Midtrans: ' . $exception->getMessage());
+                $paymentError = 'Gagal membuat transaksi Midtrans. Periksa kredensial dan koneksi internet, lalu coba lagi.';
+            }
+        }
+
+        return view('v_order.select_payment', compact('order', 'snapToken', 'paymentError'));
     }
 
+    /**
+     * Route lama POST /checkout dipertahankan agar tautan lama tidak error.
+     * Pembayaran sekarang seluruhnya melalui Snap.
+     */
     public function checkoutProses(Request $request)
     {
-        $customer = Customer::where('user_id', Auth::id())->first();
-        $order = Order::where('customer_id', $customer->id)->where('status', 'pending')->first();
+        return redirect()->route('order.selectpayment');
+    }
 
-        if ($order) {
-            $order->status = 'proses'; // Status berubah dari pending ke proses (sesuai modul history)
-            $order->tanggal = now();
-            $order->save();
-
-            return redirect()->route('order.history')->with('success', 'Pesanan berhasil dibuat!');
+    /**
+     * Notifikasi (webhook) dari Midtrans.
+     *
+     * Signature diverifikasi dengan SHA-512 sebelum status pesanan diubah,
+     * sehingga endpoint ini aman dipanggil tanpa login.
+     */
+    public function callback(Request $request): JsonResponse
+    {
+        $required = ['order_id', 'status_code', 'gross_amount', 'signature_key', 'transaction_status'];
+        foreach ($required as $field) {
+            if (!$request->filled($field)) {
+                return response()->json(['message' => "Field {$field} wajib diisi."], 400);
+            }
         }
 
-        return redirect()->route('order.cart')->with('error', 'Gagal memproses pesanan');
+        $serverKey = (string) config('midtrans.server_key');
+        if ($serverKey === '') {
+            Log::error('Notifikasi Midtrans ditolak: MIDTRANS_SERVER_KEY belum diatur.');
+            return response()->json(['message' => 'MIDTRANS_SERVER_KEY belum diatur.'], 503);
+        }
+
+        $orderId = (string) $request->input('order_id');
+        $statusCode = (string) $request->input('status_code');
+        $grossAmount = (string) $request->input('gross_amount');
+        $signatureKey = (string) $request->input('signature_key');
+
+        $expectedSignature = hash('sha512', $orderId . $statusCode . $grossAmount . $serverKey);
+        if (!hash_equals($expectedSignature, $signatureKey)) {
+            Log::warning('Notifikasi Midtrans ditolak: signature tidak valid untuk order ' . $orderId);
+            return response()->json(['message' => 'Signature tidak valid.'], 403);
+        }
+
+        $order = Order::with('orderItems.produk')
+            ->where('midtrans_order_id', $orderId)
+            ->first();
+
+        // Kompatibilitas dengan format order_id "ID-timestamp" dari modul:
+        // ambil ID pesanan di depan tanda hubung bila token lama masih dipakai.
+        if (!$order) {
+            $orderPrefix = explode('-', $orderId)[0];
+            if (ctype_digit($orderPrefix)) {
+                $order = Order::with('orderItems.produk')->find((int) $orderPrefix);
+            }
+        }
+
+        if (!$order) {
+            Log::warning('Notifikasi Midtrans: pesanan tidak ditemukan untuk order ' . $orderId);
+            return response()->json(['message' => 'Pesanan tidak ditemukan.'], 404);
+        }
+
+        if ($this->midtransGrossAmount($order) !== (int) round((float) $grossAmount)) {
+            Log::warning('Notifikasi Midtrans: nominal tidak sesuai untuk pesanan #' . $order->id);
+            return response()->json(['message' => 'Nominal pembayaran tidak sesuai.'], 422);
+        }
+
+        $transactionStatus = (string) $request->input('transaction_status');
+        $fraudStatus = $request->input('fraud_status');
+
+        $isPaid = in_array($transactionStatus, ['capture', 'settlement'], true)
+            && in_array($fraudStatus, [null, '', 'accept'], true);
+
+        if ($isPaid) {
+            DB::transaction(function () use ($order, $request, $orderId, $transactionStatus, $fraudStatus) {
+                /** @var Order $fresh */
+                $fresh = Order::with('orderItems.produk')->lockForUpdate()->findOrFail($order->id);
+
+                $fresh->fill([
+                    'midtrans_order_id' => $orderId,
+                    'payment_type' => $request->input('payment_type'),
+                    'transaction_id' => $request->input('transaction_id'),
+                    'transaction_status' => $transactionStatus,
+                    'fraud_status' => $fraudStatus,
+                    'midtrans_redirect_url' => $request->input('redirect_url'),
+                ]);
+
+                $alreadyPaid = $fresh->paid_at !== null
+                    || in_array($fresh->status, ['Paid', 'Kirim', 'Selesai'], true);
+
+                if (!$alreadyPaid) {
+                    foreach ($fresh->orderItems as $item) {
+                        $affected = Produk::whereKey($item->produk_id)
+                            ->where('stok', '>=', $item->quantity)
+                            ->decrement('stok', $item->quantity);
+
+                        if ($affected === 0) {
+                            Log::warning(
+                                'Stok produk #' . $item->produk_id . ' tidak mencukupi saat pesanan #' .
+                                $fresh->id . ' dibayar; stok tidak dikurangi.'
+                            );
+                        }
+                    }
+
+                    $fresh->status = 'Paid';
+                    $fresh->paid_at = now();
+                    if (!$fresh->tanggal) {
+                        $fresh->tanggal = now();
+                    }
+                }
+
+                $fresh->save();
+            });
+        } else {
+            $order->fill([
+                'midtrans_order_id' => $orderId,
+                'payment_type' => $request->input('payment_type'),
+                'transaction_id' => $request->input('transaction_id'),
+                'transaction_status' => $transactionStatus,
+                'fraud_status' => $fraudStatus,
+                'midtrans_redirect_url' => $request->input('redirect_url'),
+            ]);
+
+            // Pesanan yang gagal/kedaluwarsa tetap pending supaya bisa dibayar ulang.
+            if (in_array($transactionStatus, ['deny', 'cancel', 'expire', 'failure'], true)) {
+                $order->snap_token = null;
+            }
+
+            $order->save();
+        }
+
+        return response()->json(['status' => 'OK', 'message' => 'Notifikasi Midtrans diterima.']);
+    }
+
+    /**
+     * Halaman setelah Snap melaporkan pembayaran berhasil.
+     */
+    public function complete()
+    {
+        return redirect()->route('order.history')
+            ->with('success', 'Pembayaran berhasil diproses. Status pesanan akan diperbarui otomatis.');
     }
 
     public function history()
     {
         $customer = Customer::where('user_id', Auth::id())->first();
         $orders = Order::where('customer_id', $customer->id)
-            ->where('status', '!=', 'pending')
-            ->orderBy('tanggal', 'desc')
+            ->where(function ($query) {
+                // Sembunyikan keranjang yang belum checkout, tetapi tampilkan
+                // pesanan pending yang sudah punya transaksi Midtrans (bisa dibayar ulang).
+                $query->where('status', '!=', 'pending')
+                    ->orWhereNotNull('midtrans_order_id');
+            })
+            ->orderByRaw('COALESCE(tanggal, created_at) DESC')
             ->get();
 
         return view('v_order.history', compact('orders'));
@@ -456,6 +654,76 @@ class OrderController extends Controller
             'judul' => 'Invoice Pesanan #' . $order->id,
             'order' => $order,
         ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Helper Midtrans (Minggu 12)
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Terapkan kredensial Midtrans ke library midtrans/midtrans-php.
+     */
+    private function configureMidtrans(): void
+    {
+        Config::$serverKey = (string) config('midtrans.server_key');
+        Config::$clientKey = (string) config('midtrans.client_key');
+        Config::$isProduction = (bool) config('midtrans.is_production', false);
+        Config::$isSanitized = (bool) config('midtrans.is_sanitized', true);
+        Config::$is3ds = (bool) config('midtrans.is_3ds', true);
+    }
+
+    /**
+     * ID transaksi Midtrans yang unik untuk setiap percobaan pembayaran.
+     * Awalan tetap ID pesanan agar notifikasi lama masih bisa dipetakan.
+     */
+    private function makeMidtransOrderId(Order $order): string
+    {
+        return $order->id . '-' . now()->format('YmdHis') . '-' . Str::lower(Str::random(4));
+    }
+
+    /**
+     * Total pembayaran = harga produk + ongkir, dalam rupiah bulat.
+     */
+    private function midtransGrossAmount(Order $order): int
+    {
+        $total = 0;
+
+        foreach ($order->orderItems as $item) {
+            $total += (int) round((float) $item->harga) * (int) $item->quantity;
+        }
+
+        return $total + (int) round((float) ($order->biaya_ongkir ?? 0));
+    }
+
+    /**
+     * Rincian item yang dikirim ke Snap; jumlahnya harus sama dengan gross_amount.
+     */
+    private function midtransItemDetails(Order $order): array
+    {
+        $items = [];
+
+        foreach ($order->orderItems as $item) {
+            $items[] = [
+                'id' => 'produk-' . $item->produk_id,
+                'price' => (int) round((float) $item->harga),
+                'quantity' => (int) $item->quantity,
+                'name' => Str::limit(optional($item->produk)->nama_produk ?? ('Produk #' . $item->produk_id), 50, ''),
+            ];
+        }
+
+        $shipping = (int) round((float) ($order->biaya_ongkir ?? 0));
+        if ($shipping > 0) {
+            $items[] = [
+                'id' => 'ongkir',
+                'price' => $shipping,
+                'quantity' => 1,
+                'name' => Str::limit(trim(($order->kurir ?? 'Ongkir') . ' ' . ($order->layanan_ongkir ?? '')), 50, '') ?: 'Ongkos Kirim',
+            ];
+        }
+
+        return $items;
     }
 
     /**

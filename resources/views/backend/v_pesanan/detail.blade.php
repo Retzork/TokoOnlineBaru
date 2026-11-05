@@ -67,6 +67,20 @@
                                 <th>Status</th>
                                 <td><span class="badge badge-info">{{ $order->status }}</span></td>
                             </tr>
+                            @if ($order->midtrans_order_id)
+                            <tr>
+                                <th>Metode Bayar</th>
+                                <td>{{ $order->payment_type ?? '-' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Status Midtrans</th>
+                                <td>{{ $order->transaction_status ?? '-' }} @if ($order->fraud_status) ({{ $order->fraud_status }}) @endif</td>
+                            </tr>
+                            <tr>
+                                <th>Dibayar Pada</th>
+                                <td>{{ $order->paid_at ? $order->paid_at->format('d M Y H:i') : '-' }}</td>
+                            </tr>
+                            @endif
                         </table>
                     </div>
                 </div>

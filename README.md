@@ -90,7 +90,7 @@ Completed: <date>
 | 9 | Ordering and Checkout Flow | :white_check_mark: Done (team PR, not documented here) |
 | 10 | Order Management (backend) and Invoices | :white_check_mark: Done |
 | 11 | Order Chart (admin dashboard) | :white_check_mark: Done |
-| 12 | Payment Gateway with Midtrans (Snap) | Not started |
+| 12 | Payment Gateway with Midtrans (Snap) | :white_check_mark: Done |
 | 13–15 | Group Project Presentation (no code) | — |
 
 Detailed descriptions for unfinished weeks stay in `../project.md` — this README only documents finished work.
@@ -537,7 +537,7 @@ pending (keranjang) → proses → Kirim → Selesai
 - `statusUpdate` exercised inside a rolled-back transaction: status `Kirim` + resi stored, redirect to `pesanan.proses`, then the data returned to `pending` (no change left in the DB).
 - All 10 new/edited views rendered through the controller (49 KB dashboard, 25 KB detail, 18 KB customer invoice) with no Blade error.
 
-### Week 11 — Order Chart (admin dashboard) :white_check_mark:
+### Week 11 - Order Chart (admin dashboard) :white_check_mark:
 
 Completed: 2026-10-27
 
@@ -579,6 +579,95 @@ Completed: 2026-10-27
 - `php -l` clean on `BerandaController`; dashboard renders (49 KB) with `#grafik-pesanan` present, the three flot includes and `var dataPesanan = [["Jan",0],["Feb",0], … ["Dec",0]]` (all zero while the two local orders are still `pending`).
 - `/backend/beranda` → 200 on the running server.
 
+
+### Week 12 — Payment Gateway with Midtrans (Snap) :white_check_mark:
+
+Completed: 2026-11-05
+
+**Goal:** replace the direct checkout button with a real Midtrans Snap payment flow and update the order status from the Midtrans notification (webhook).
+
+**What was done**
+
+- `composer require midtrans/midtrans-php` (`^2.6`) — official Midtrans PHP SDK.
+- `config/midtrans.php` — `server_key`, `client_key`, `is_production`, `is_sanitized`, `is_3ds`, and the correct Sandbox/Production Snap.js URL.
+- `.env.example` — new `MIDTRANS_*` keys (Sandbox credentials from the Midtrans dashboard).
+- `database/migrations/2026_11_05_000000_add_midtrans_fields_to_order_table.php` — adds `midtrans_order_id`, `snap_token`, `midtrans_redirect_url`, `payment_type`, `transaction_id`, `transaction_status`, `fraud_status`, `paid_at` to `order`.
+- `app/Models/Order.php` — Midtrans fields in `$fillable`, `paid_at` datetime cast, and a `grand_total` accessor (`total_harga + biaya_ongkir`).
+- `app/Http/Controllers/OrderController.php`:
+  - `selectPayment()` builds a unique `order_id` (`<order-id>-<timestamp>-<random>`), sends product + shipping `item_details`, customer details, and a finish callback, then stores the Snap token.
+  - `callback()` verifies the SHA-512 signature, validates the amount, marks the order `Paid` only for `capture`/`settlement` (fraud `accept`), decrements stock **once**, and stores payment metadata.
+  - `complete()` redirects to order history with a success message.
+  - `history()` now includes a pending order that already has a Midtrans transaction so the customer can retry payment.
+- `routes/api.php` — `POST /api/midtrans/callback` (`midtrans.callback`), no login, protected by the signature check.
+- `routes/web.php` — `GET /complete` (`order.complete`); checkout shipping endpoints moved to `/customer/provinces`, `/customer/cities`, `/customer/cost` so they no longer overwrite the public Week 7 routes.
+- `resources/views/v_order/select_payment.blade.php` — order recap + Snap.js button with `onSuccess`, `onPending`, `onError`, `onClose` handlers.
+- `resources/views/v_order/history.blade.php` — status badges and a **BAYAR SEKARANG** retry button for pending payments.
+- Backend order detail + customer/backend invoices show payment method, Midtrans status and paid date.
+- `tests/Feature/MidtransCallbackTest.php` — settlement, duplicate notification, invalid signature and amount mismatch.
+
+**Known issues from the module fixed**
+
+- The module's `callback()` calls `Order::find($request->order_id)`, but the Snap order id is `"<id>-<timestamp>"` — it would never find the order. We map by `midtrans_order_id` and fall back to the numeric prefix.
+- The module leaves `dd($request->all())` in the callback, which would return a debug dump to Midtrans. Removed.
+- The module marks the order `Paid` for **any** transaction status as long as the signature matches. Now only `capture`/`settlement` with `fraud_status = accept` marks it paid; `pending`, `deny`, `cancel`, `expire` leave the order payable.
+- The module has no `config/midtrans.php`, no Snap.js `<script>` and no `order.complete` route. All are added.
+- The module uses `Auth::user()->customer->id` although `User` has no `customer` relation; the controller now looks up `Customer::where('user_id', Auth::id())`.
+- Stock is reduced in the callback, not before payment, and duplicate notifications cannot reduce it twice.
+- While verifying, the customer checkout routes were found to overwrite the public `/provinces`, `/cities`, `/cost` routes (the Week 7 test page returned 500). They are now namespaced under `/customer/*`.
+
+**How to check**
+
+1. Create a Midtrans Sandbox account, open **Settings → Access Keys**, copy the **Server Key** and **Client Key** into `.env`:
+
+   ```
+   MIDTRANS_SERVER_KEY=SB-Mid-server-...
+   MIDTRANS_CLIENT_KEY=SB-Mid-client-...
+   MIDTRANS_IS_PRODUCTION=false
+   MIDTRANS_IS_SANITIZED=true
+   MIDTRANS_IS_3DS=true
+   ```
+
+2. Run `php artisan migrate` (adds the Midtrans columns) and `php artisan config:clear`.
+3. Login as a customer, add products, choose shipping, then click **BAYAR SEKARANG** on `/selectpayment` → the Midtrans Snap popup opens with QRIS, bank transfer, e-wallet, card, etc.
+4. Pay with a Sandbox method (e.g. QRIS simulator or test card `4811 1111 1111 1114`, expiry any future date, CVV `123`, OTP `112233`).
+5. For the webhook, expose the app publicly (e.g. `ngrok http 8000`), set `APP_URL=https://<public-url>` in `.env`, and set **Settings → Configuration → Payment Notification URL** to `https://<public-url>/api/midtrans/callback`.
+6. After `settlement`, `order.status` becomes `Paid`, `payment_type`/`transaction_id`/`paid_at` are filled, stock decreases once, the customer history shows **Dibayar**, and the order appears in **Backend → Pesanan → Pesanan Proses**.
+7. Without a public URL you can still test the endpoint locally:
+
+   ```bash
+   curl -X POST http://127.0.0.1:8000/api/midtrans/callback \
+     -H "Content-Type: application/json" \
+     -d '{"order_id":"1-...","status_code":"200","gross_amount":"65000","transaction_status":"settlement","fraud_status":"accept","signature_key":"<sha512(order_id+status_code+gross_amount+server_key)>"}'
+   ```
+
+   Invalid signatures return `403`; a mismatched amount returns `422`; a duplicate settlement returns `200` without reducing stock again.
+
+**Files to inspect**
+
+| File | What changed |
+| --- | --- |
+| `composer.json`, `composer.lock` | `midtrans/midtrans-php` dependency |
+| `config/midtrans.php` | new Midtrans/Snap configuration |
+| `.env.example` | `MIDTRANS_*` variables |
+| `database/migrations/2026_11_05_000000_add_midtrans_fields_to_order_table.php` | payment columns |
+| `app/Models/Order.php` | Midtrans fillable fields, `paid_at` cast, `grand_total` |
+| `app/Http/Controllers/OrderController.php` | Snap token, callback, complete, history, helpers |
+| `routes/api.php`, `routes/web.php` | callback + complete routes, customer ongkir endpoints |
+| `resources/views/v_order/select_payment.blade.php` | Snap payment page |
+| `resources/views/v_order/history.blade.php` | payment status + retry |
+| `resources/views/v_order/invoice.blade.php`, `resources/views/backend/v_pesanan/{detail,invoice}.blade.php` | payment info |
+| `resources/views/v_order/select_shipping.blade.php` | use `/customer/*` ongkir endpoints |
+| `tests/Feature/MidtransCallbackTest.php` | webhook tests |
+
+**Verified**
+
+- `php -l` clean on the controller, model, config, migration and routes.
+- `php artisan route:list` shows `POST api/midtrans/callback` and `GET complete`.
+- `php artisan view:cache` compiles every Blade template.
+- `php artisan test`: **13 passed, 62 assertions** (only PHP 8.4 / missing-`.env` environment notices).
+- Callback tests cover: settlement → `Paid` + stock −1×qty; duplicate settlement → stock unchanged; bad signature → `403`; wrong amount → `422`; payment page without a server key shows a clear message.
+
+
 ## Local end-to-end run — Weeks 1–7 (2026-10-29)
 
 The project was run from a clean local state and all seven weeks were exercised in Edge/Playwright.
@@ -611,4 +700,4 @@ The project was run from a clean local state and all seven weeks were exercised 
 - Google OAuth could not be re-tested end-to-end in this run because `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are empty in the current `.env`; `/auth/redirect` still returns 302 to Google, and the email/password fallback is the working login path.
 - Current catalogue state (user-added products): 10 published products; page 1 = 6, page 2 = 4 (Wedang Jahe, Cireng, Pisang Goreng, Kue Mochi); blocked product 8 = Kerupuk Melinjo.
 
-Next in the module: **Minggu Ke-12 — Payment Gateway dengan Midtrans (Snap)**. Weeks 9 (team PR), 10 and 11 are done, so the remaining work is the Snap payment integration on top of the existing checkout. There is no Week 8.
+All code weeks (1-7 and 9-12) are complete. Week 12 needs Midtrans Sandbox credentials in `.env` before the Snap popup can be tested; the setup and callback testing steps are in the Week 12 section above. There is no Week 8.

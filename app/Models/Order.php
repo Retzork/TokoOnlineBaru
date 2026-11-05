@@ -23,12 +23,29 @@ class Order extends Model
         'total_berat',
         'alamat',
         'pos',
-        'tanggal'
+        'tanggal',
+        'midtrans_order_id',
+        'snap_token',
+        'midtrans_redirect_url',
+        'payment_type',
+        'transaction_id',
+        'transaction_status',
+        'fraud_status',
+        'paid_at',
     ];
 
     protected $casts = [
         'tanggal' => 'datetime',
+        'paid_at' => 'datetime',
     ];
+
+    /**
+     * Total yang harus dibayar (produk + ongkir), dibulatkan ke rupiah.
+     */
+    public function getGrandTotalAttribute(): int
+    {
+        return (int) round((float) $this->total_harga + (float) ($this->biaya_ongkir ?? 0));
+    }
 
     public function orderItems()
     {

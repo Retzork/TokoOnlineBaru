@@ -129,7 +129,12 @@
                     Estimasi: {{ $order->estimasi_ongkir ?? '-' }}<br>
                     Berat: {{ number_format($order->total_berat ?? 0, 0, ',', '.') }} Gram<br>
                     No. Resi: {{ $order->noresi ?? '-' }}<br>
-                    Status: {{ $order->status }}
+                    Status: {{ $order->status }}<br>
+                    @if ($order->midtrans_order_id)
+                    Metode Bayar: {{ $order->payment_type ?? '-' }}<br>
+                    Status Midtrans: {{ $order->transaction_status ?? '-' }}<br>
+                    Dibayar: {{ $order->paid_at ? $order->paid_at->format('d M Y H:i') : '-' }}
+                    @endif
                 </td>
             </tr>
         </table>
